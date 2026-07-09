@@ -11,6 +11,78 @@ const Input = {
   st: { left: 0, right: 0, up: 0, down: 0, run: 0, jump: 0 },
   hits: { jumpHit: 0, downHit: 0, kickHit: 0, throwHit: 0, shootHit: 0, pauseHit: 0, enterHit: 0, backHit: 0 },
 
+  // ---- touch controls (mobile) ----
+  touchCapable: (typeof window !== 'undefined') && (('ontouchstart' in window) || navigator.maxTouchPoints > 0),
+  touchMode: false,
+  activeTouches: {},
+  taps: [],
+  buttons: [
+    { id: 'left',  x: 60,  y: 446, r: 40, label: '◀' },
+    { id: 'right', x: 174, y: 446, r: 40, label: '▶' },
+    { id: 'up',    x: 117, y: 376, r: 31, label: '▲' },
+    { id: 'down',  x: 117, y: 508, r: 30, label: '▼' },
+    { id: 'jump',  x: 884, y: 464, r: 46, label: 'JUMP' },
+    { id: 'kick',  x: 786, y: 502, r: 34, label: 'KICK' },
+    { id: 'throw', x: 764, y: 414, r: 32, label: 'THROW' },
+    { id: 'shoot', x: 850, y: 354, r: 32, label: 'LASER' },
+    { id: 'pause', x: 480, y: 28,  r: 20, label: 'II', playOnly: true }
+  ],
+
+  canvasPos(t) {
+    const r = Game.cv.getBoundingClientRect();
+    return { x: (t.clientX - r.left) * (VIEW_W / r.width), y: (t.clientY - r.top) * (VIEW_H / r.height) };
+  },
+  buttonAt(p) {
+    for (const b of this.buttons) {
+      if (b.playOnly && Game.state !== 'play') continue;
+      const rr = b.r * 1.25;
+      if ((p.x - b.x) * (p.x - b.x) + (p.y - b.y) * (p.y - b.y) < rr * rr) return b;
+    }
+    return null;
+  },
+  held(id) {
+    const b = this.buttons.find(bb => bb.id === id);
+    for (const k in this.activeTouches) {
+      const p = this.activeTouches[k];
+      const rr = b.r * 1.25;
+      if ((p.x - b.x) * (p.x - b.x) + (p.y - b.y) * (p.y - b.y) < rr * rr) return true;
+    }
+    return false;
+  },
+
+  initTouch(cv) {
+    const start = e => {
+      e.preventDefault();
+      SFX.init();
+      this.touchMode = true;
+      for (const t of e.changedTouches) {
+        const p = this.canvasPos(t);
+        this.activeTouches[t.identifier] = p;
+        const b = this.buttonAt(p);
+        if (!b) this.taps.push(p);
+        else {
+          if (b.id === 'jump') this.hits.jumpHit = 1;
+          if (b.id === 'down') this.hits.downHit = 1;
+          if (b.id === 'kick') this.hits.kickHit = 1;
+          if (b.id === 'throw') this.hits.throwHit = 1;
+          if (b.id === 'shoot') this.hits.shootHit = 1;
+          if (b.id === 'pause') this.hits.pauseHit = 1;
+        }
+      }
+    };
+    cv.addEventListener('touchstart', start, { passive: false });
+    cv.addEventListener('touchmove', e => {
+      e.preventDefault();
+      for (const t of e.changedTouches)
+        if (this.activeTouches[t.identifier]) this.activeTouches[t.identifier] = this.canvasPos(t);
+    }, { passive: false });
+    const end = e => {
+      for (const t of e.changedTouches) delete this.activeTouches[t.identifier];
+    };
+    cv.addEventListener('touchend', end);
+    cv.addEventListener('touchcancel', end);
+  },
+
   init() {
     addEventListener('keydown', e => {
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
@@ -32,15 +104,22 @@ const Input = {
 
   read() {
     const k = this.keys;
+    const tm = this.touchMode;
+    const th = id => tm && this.held(id);
+    const L = !!(k.ArrowLeft || k.KeyA) || th('left');
+    const R = !!(k.ArrowRight || k.KeyD) || th('right');
     return {
-      left: !!(k.ArrowLeft || k.KeyA), right: !!(k.ArrowRight || k.KeyD),
-      up: !!(k.ArrowUp || k.KeyW), down: !!(k.ArrowDown || k.KeyS),
-      run: !!(k.ShiftLeft || k.ShiftRight), jump: !!(k.Space || k.KeyZ),
+      left: L, right: R,
+      up: !!(k.ArrowUp || k.KeyW) || th('up'),
+      down: !!(k.ArrowDown || k.KeyS) || th('down'),
+      // touch movement always runs — precision walking is a keyboard luxury
+      run: !!(k.ShiftLeft || k.ShiftRight) || (tm && (th('left') || th('right'))),
+      jump: !!(k.Space || k.KeyZ) || th('jump'),
       jumpHit: this.hits.jumpHit, downHit: this.hits.downHit,
       kickHit: this.hits.kickHit, throwHit: this.hits.throwHit, shootHit: this.hits.shootHit
     };
   },
-  clearHits() { for (const key in this.hits) this.hits[key] = 0; }
+  clearHits() { for (const key in this.hits) this.hits[key] = 0; this.taps.length = 0; }
 };
 
 // =================================================================
@@ -61,6 +140,7 @@ const Game = {
     this.cv = document.getElementById('game');
     this.g = this.cv.getContext('2d');
     Input.init();
+    Input.initTouch(this.cv);
     Sprites.build();
     try {
       const s = JSON.parse(localStorage.getItem('emberwild_save') || 'null');
@@ -173,21 +253,37 @@ const Game = {
     }
     else if (this.state === 'pause') {
       this.render(g);
-      this.drawOverlayPanel(g, 'PAUSED', ['Enter — resume', 'Backspace — quit to map']);
+      this.drawOverlayPanel(g, 'PAUSED', Input.touchMode
+        ? ['tap top half — resume', 'tap bottom half — quit to map']
+        : ['Enter — resume', 'Backspace — quit to map']);
       if (Input.hits.enterHit || Input.hits.pauseHit) this.state = 'play';
       if (Input.hits.backHit) this.state = 'select';
+      if (Input.taps.length) this.state = Input.taps[0].y < VIEW_H * 0.55 ? 'play' : 'select';
     }
     else if (this.state === 'clear') { this.render(g); this.drawClear(g); this.menuInput('clear'); }
     else if (this.state === 'victory') { this.drawVictory(g); this.menuInput('victory'); }
 
+    if (this.state === 'play' || this.state === 'pause') this.drawTouchControls(g);
+    this.drawRotateHint(g);
     Input.clearHits();
   },
 
   menuInput(which) {
     const h = Input.hits;
     if (which === 'title') {
-      if (h.enterHit || h.jumpHit) { SFX.play('select'); this.state = 'select'; }
+      if (h.enterHit || h.jumpHit || Input.taps.length) { SFX.play('select'); this.state = 'select'; }
     } else if (which === 'select') {
+      // tap a level card directly (mobile)
+      for (const tp of Input.taps) {
+        const col = Math.floor((tp.x - 36) / 180), row = Math.floor((tp.y - 100) / 104);
+        if (col >= 0 && col < 5 && row >= 0 && row < 4 &&
+            (tp.x - 36) % 180 < 168 && (tp.y - 100) % 104 < 92) {
+          const i = row * 5 + col;
+          this.selIdx = i;
+          SFX.play('select');
+          if (i < this.save.unlocked) this.startLevel(i + 1);
+        }
+      }
       const cols = 5;
       if (Input.keys.ArrowRight && !this._navHold) { this.selIdx = Math.min(19, this.selIdx + 1); SFX.play('select'); }
       if (Input.keys.ArrowLeft && !this._navHold) { this.selIdx = Math.max(0, this.selIdx - 1); SFX.play('select'); }
@@ -197,14 +293,42 @@ const Game = {
       if (h.enterHit && this.selIdx < this.save.unlocked) this.startLevel(this.selIdx + 1);
       if (h.backHit) this.state = 'title';
     } else if (which === 'clear') {
-      if (h.enterHit) {
+      if (h.enterHit || Input.taps.length) {
         if (this.curLevel >= Levels.count) this.state = 'victory';
         else this.startLevel(this.curLevel + 1);
       }
       if (h.backHit) this.state = 'select';
     } else if (which === 'victory') {
-      if (h.enterHit || h.backHit) this.state = 'select';
+      if (h.enterHit || h.backHit || Input.taps.length) this.state = 'select';
     }
+  },
+
+  drawTouchControls(g) {
+    if (!Input.touchMode) return;
+    for (const b of Input.buttons) {
+      if (b.playOnly && this.state !== 'play') continue;
+      const on = Input.held(b.id);
+      g.globalAlpha = on ? 0.55 : 0.25;
+      g.fillStyle = '#1a1428';
+      g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = on ? 0.9 : 0.5;
+      g.strokeStyle = on ? '#ffe9a8' : '#b45aff'; g.lineWidth = 2.5;
+      g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = '#f0e8ff';
+      g.font = 'bold ' + (b.label.length > 2 ? 12 : 22) + 'px monospace';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(b.label, b.x, b.y + 1);
+      g.textBaseline = 'alphabetic';
+    }
+    g.globalAlpha = 1; g.textAlign = 'left';
+  },
+
+  drawRotateHint(g) {
+    if (!Input.touchCapable || window.innerWidth >= window.innerHeight) return;
+    g.fillStyle = 'rgba(10,8,18,0.85)'; g.fillRect(0, VIEW_H / 2 - 34, VIEW_W, 68);
+    g.fillStyle = '#ffe9a8'; g.font = 'bold 22px monospace'; g.textAlign = 'center';
+    g.fillText('⟳ rotate your device for the best view', VIEW_W / 2, VIEW_H / 2 + 7);
+    g.textAlign = 'left';
   },
 
   update(dt) {
@@ -791,7 +915,7 @@ const Game = {
     g.textAlign = 'center';
     g.fillStyle = Math.sin(this.time * 4) > 0 ? '#ffe9a8' : '#c9a13b';
     g.font = 'bold 20px monospace';
-    g.fillText('PRESS ENTER', VIEW_W / 2, 528);
+    g.fillText(Input.touchCapable ? 'TAP TO START' : 'PRESS ENTER', VIEW_W / 2, 528);
     g.textAlign = 'left';
   },
 
