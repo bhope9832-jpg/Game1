@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Emberwild — Sprite Sheets</title>
+<style>
+  body { background: #14101f; color: #c9c2da; font: 14px monospace; padding: 24px; }
+  h1 { color: #d9b8ff; }
+  h2 { color: #ffe9a8; margin: 28px 0 6px; }
+  .sheet { background: #1e1930; border: 1px solid #3a3060; padding: 8px; display: inline-block; margin: 4px 0; }
+  canvas { display: block; image-rendering: auto; max-width: 100%; }
+  p { color: #8a82a0; max-width: 800px; }
+</style>
+</head>
+<body>
+  <h1>EMBERWILD — generated sprite sheets</h1>
+  <p>Every character in the game is built from a real sprite sheet (one row per animation,
+  one column per frame), generated procedurally at boot from smooth vector shapes.
+  This page renders each sheet exactly as the engine uses it.</p>
+  <div id="out"></div>
+  <script src="js/util.js"></script>
+  <script src="js/sprites.js"></script>
+  <script>
+    Sprites.build();
+    const out = document.getElementById('out');
+    function show(title, sh, note) {
+      const h = document.createElement('h2'); h.textContent = title; out.appendChild(h);
+      if (note) { const p = document.createElement('p'); p.textContent = note; out.appendChild(p); }
+      const box = document.createElement('div'); box.className = 'sheet';
+      box.appendChild(sh.cv); out.appendChild(box);
+      const cap = document.createElement('p');
+      cap.textContent = 'rows: ' + Object.keys(sh.meta).map(k => k + '(' + sh.meta[k].n + 'f)').join('  ');
+      out.appendChild(cap);
+    }
+    show('KAYA — the huntress', Sprites.player,
+      'idle · walk · run · jump · fall · slide · kick · throw · shoot · crouch · pickup · climb · swim · hurt');
+    for (const t of Object.keys(Sprites.enemies))
+      show('enemy — ' + t, Sprites.enemies[t]);
+    for (const d of Sprites.bossDefs)
+      show('boss ' + d.id + ' — ' + d.name, Sprites.boss(d.id));
+    const propNames = { orb: 'healing orb', rock: 'rock', skull: 'skull', spear: 'spear', ammo: 'laser cell', gun: 'laser pistol', portal: 'exit portal', totem: 'checkpoint totem', gem: 'gem', heart: 'heart' };
+    for (const k of Object.keys(propNames))
+      show('prop — ' + propNames[k], Sprites.props[k]);
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emberwild — Kaya and the Hive Moon</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0912;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  #wrap { position: relative; }
+  canvas {
+    display: block;
+    max-width: 100vw; max-height: 100vh;
+    width: auto; height: auto;
+    aspect-ratio: 16 / 9;
+    image-rendering: auto;
+    box-shadow: 0 0 60px rgba(140, 80, 220, 0.25);
+  }
+  #hint {
+    position: absolute; bottom: -26px; width: 100%;
+    text-align: center; color: #55506a;
+    font: 12px monospace;
+  }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="960" height="540"></canvas>
+    <div id="hint">Emberwild · open sprites.html to inspect the generated sprite sheets</div>
+  </div>
+  <script src="js/util.js"></script>
+  <script src="js/sfx.js"></script>
+  <script src="js/sprites.js"></script>
+  <script src="js/levels.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
