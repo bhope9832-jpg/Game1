@@ -72,7 +72,7 @@ const Sprites = (() => {
   // draw a frame: (x, yBottom) is the sprite's ground anchor
   function draw(g, sh, name, fi, x, yBottom, flip, scale) {
     const m = sh.meta[name] || sh.meta.idle;
-    const f = Math.max(0, Math.min(m.n - 1, fi | 0));
+    const f = (m.col0 || 0) + Math.max(0, Math.min(m.n - 1, fi | 0));
     g.save();
     g.translate(Math.round(x), Math.round(yBottom));
     if (flip) g.scale(-1, 1);
@@ -865,13 +865,20 @@ const Sprites = (() => {
     draw, frame, makeTiles, KAYA,
 
     build() {
-      this.player = makeSheet(72, 78, {
-        idle: { n: 6, fps: 7 }, walk: { n: 8, fps: 12 }, run: { n: 8, fps: 15 },
-        jump: { n: 1 }, fall: { n: 2, fps: 7 }, slide: { n: 1 },
-        kick: { n: 5, fps: 18, loop: false }, throw: { n: 5, fps: 16, loop: false },
-        shoot: { n: 3, fps: 14, loop: false }, crouch: { n: 1 }, pickup: { n: 4, fps: 12, loop: false },
-        climb: { n: 6, fps: 9 }, swim: { n: 6, fps: 9 }, hurt: { n: 1 }
-      }, kayaDraw);
+      if (typeof KAYA_SHEET !== 'undefined') {
+        // Kaya's real sprite sheet, cut from the player's reference art
+        const img = new Image();
+        img.src = KAYA_SHEET.src;
+        this.player = { cv: img, cw: KAYA_SHEET.cw, ch: KAYA_SHEET.ch, meta: KAYA_SHEET.meta };
+      } else {
+        this.player = makeSheet(72, 78, {
+          idle: { n: 6, fps: 7 }, walk: { n: 8, fps: 12 }, run: { n: 8, fps: 15 },
+          jump: { n: 1 }, fall: { n: 2, fps: 7 }, slide: { n: 1 },
+          kick: { n: 5, fps: 18, loop: false }, throw: { n: 5, fps: 16, loop: false },
+          shoot: { n: 3, fps: 14, loop: false }, crouch: { n: 1 }, pickup: { n: 4, fps: 12, loop: false },
+          climb: { n: 6, fps: 9 }, swim: { n: 6, fps: 9 }, hurt: { n: 1 }
+        }, kayaDraw);
+      }
       Object.keys(ENEMY_DRAW).forEach(t => { this.enemies[t] = makeEnemySheet(t); });
       this.props = makeProps();
     },

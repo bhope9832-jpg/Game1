@@ -791,7 +791,12 @@ const Game = {
     g.save();
     g.beginPath(); g.arc(44, 44, 24, 0, Math.PI * 2); g.clip();
     g.fillStyle = '#2a2438'; g.fillRect(20, 20, 48, 48);
-    g.drawImage(Sprites.player.cv, 12, 0, 52, 52, 16, 16, 56, 56);
+    // head crop from the idle frame (cell is bottom-anchored)
+    const pm = Sprites.player.meta.idle;
+    g.drawImage(Sprites.player.cv,
+      (pm.col0 || 0) * Sprites.player.cw + Sprites.player.cw / 2 - 19,
+      pm.row * Sprites.player.ch + Sprites.player.ch - 80, 38, 38,
+      16, 16, 56, 56);
     g.restore();
     g.strokeStyle = '#b45aff'; g.lineWidth = 2;
     g.beginPath(); g.arc(44, 44, 24, 0, Math.PI * 2); g.stroke();
@@ -988,8 +993,10 @@ const Game = {
     g.fillStyle = '#c9c2da'; g.font = '16px monospace';
     g.fillText('Twenty trials. Five worlds. One barefoot huntress.', VIEW_W / 2, 210);
     g.fillText('Kaya kicks the Empress\'s crown into the swamp and goes home.', VIEW_W / 2, 238);
-    if (Sprites.player)
-      Sprites.draw(g, Sprites.player, 'idle', Sprites.frame(Sprites.player, 'idle', this.time), VIEW_W / 2, 430, false, 2.4);
+    if (Sprites.player) {
+      const vAnim = Sprites.player.meta.victory ? 'victory' : 'idle';
+      Sprites.draw(g, Sprites.player, vAnim, 0, VIEW_W / 2, 430, false, 2.4);
+    }
     g.fillStyle = '#9a92b0'; g.font = '15px monospace';
     g.fillText('Enter — return to the map', VIEW_W / 2, 500);
     g.textAlign = 'left';

@@ -335,15 +335,20 @@ class Player {
     const sh = Sprites.player;
     const fi = Sprites.frame(sh, this.anim, this.animT);
     let yB = this.y + this.h / 2 + 2;
+    // gentle breathing bob on single-frame poses
+    if (this.anim === 'idle' || this.anim === 'crouch') yB += Math.sin(this.animT * 2.6) * 1.4;
     if (this.state === 'dead') {
       g.save(); g.globalAlpha = Math.max(0, 1 - this.deadT / 1.4);
       Sprites.draw(g, sh, 'hurt', 0, this.x, yB, this.facing < 0);
       g.restore(); return;
     }
     Sprites.draw(g, sh, this.anim, fi, this.x, yB, this.facing < 0);
+    // pistol in her extended hand while firing
+    if (this.action === 'shoot' && Sprites.props)
+      Sprites.draw(g, Sprites.props.gun, 'idle', 0, this.x + this.facing * 30, this.y - 4, this.facing < 0, 0.8);
     if (this.held && this.action !== 'throw') {
       const pr = Sprites.props[this.held === 'spear' ? 'spear' : this.held];
-      if (pr) Sprites.draw(g, pr, 'idle', 0, this.x + this.facing * 4, this.y - this.h / 2 + 4, this.facing < 0);
+      if (pr) Sprites.draw(g, pr, 'idle', 0, this.x + this.facing * 4, this.y - this.h / 2 + 2, this.facing < 0);
     }
   }
 }

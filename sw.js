@@ -1,10 +1,10 @@
 'use strict';
 // Service worker: cache the whole game so the installed app works offline.
-const CACHE = 'emberwild-v2';
+const CACHE = 'emberwild-v3';
 const FILES = [
   './', './index.html', './sprites.html', './manifest.webmanifest',
   './icon-192.png', './icon-512.png',
-  './js/util.js', './js/sfx.js', './js/sprites.js',
+  './js/util.js', './js/sfx.js', './js/kaya_sheet.js', './js/sprites.js',
   './js/levels.js', './js/entities.js', './js/game.js'
 ];
 
