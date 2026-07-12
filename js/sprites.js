@@ -84,7 +84,8 @@ const Sprites = (() => {
   function frame(sh, name, t) {
     const m = sh.meta[name] || sh.meta.idle;
     const f = Math.floor(t * m.fps);
-    return m.loop ? f % m.n : Math.min(m.n - 1, f);
+    // safe modulo — animT can run backwards (e.g. climbing down)
+    return m.loop ? ((f % m.n) + m.n) % m.n : Math.max(0, Math.min(m.n - 1, f));
   }
 
   // ================================================================

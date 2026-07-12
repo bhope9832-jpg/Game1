@@ -192,7 +192,10 @@ class Player {
       }
       if (this.onGround && input.down) this.state = 'normal';
       this.setAnim('climb');
-      if (!input.up && !input.down) this.animT -= dt; // pause the cycle when still
+      // animT gained +dt at the top of update: leave it for climbing up,
+      // cancel it to freeze while hanging, run it backwards climbing down
+      if (input.down && !input.up) this.animT -= 2 * dt;
+      else if (!input.up) this.animT -= dt;
 
     } else {
       // ---------------- ground / air ----------------
