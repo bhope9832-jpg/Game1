@@ -863,7 +863,24 @@ const Sprites = (() => {
   const S = {
     player: null, enemies: {}, props: null,
     bossDefs: BOSS_DEFS, bossSheets: {},
+    scene1: null,
     draw, frame, makeTiles, KAYA,
+
+    // draw a frame cut from the beach-scene reference sheet
+    // (x, yBottom) anchors the feet; sx/sy allow squash & stretch
+    drawScene1(g, name, x, yBottom, flip, scale, rot, sy) {
+      const sc = this.scene1;
+      if (!sc || !sc.img) return;
+      const f = sc.frames[name];
+      if (!f) return;
+      const s = scale || 1, s2 = sy || s;
+      g.save();
+      g.translate(Math.round(x), Math.round(yBottom));
+      if (rot) g.rotate(rot);
+      if (flip) g.scale(-1, 1);
+      g.drawImage(sc.img, f.x, f.y, f.w, f.h, -f.w * s / 2, -f.h * s2, f.w * s, f.h * s2);
+      g.restore();
+    },
 
     build() {
       if (typeof KAYA_SHEET !== 'undefined') {
@@ -882,6 +899,11 @@ const Sprites = (() => {
       }
       Object.keys(ENEMY_DRAW).forEach(t => { this.enemies[t] = makeEnemySheet(t); });
       this.props = makeProps();
+      if (typeof SCENE1 !== 'undefined') {
+        const img = new Image();
+        img.src = SCENE1.src;
+        this.scene1 = { img, frames: SCENE1.frames };
+      }
     },
 
     boss(id) {

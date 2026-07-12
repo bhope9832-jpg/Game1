@@ -72,8 +72,23 @@ const THEMES = [
   }
 ];
 
+// Level 1's world — modeled directly on the alien-beach reference art
+const DESERT_THEME = {
+  name: 'Duskmere Strand', desert: true,
+  skyTop: '#221650', skyMid: '#63307c', skyBot: '#f07a3a',
+  hills: '#472052', hillsFar: '#5a2a62',
+  trees: '#2a4432', treesLt: '#3a5a42',
+  foliage: ['#4a8a3a', '#6aa04a', '#c9713b', '#8a5a9a'],
+  rock: '#b98a58', rockDk: '#8a6038', rockLt: '#d9ac74',
+  moss: '#c99a62', mossLt: '#ecc68c',
+  vine: '#4e7a2e', vineLt: '#79a94e',
+  spike: '#d8cfb8', spikeLt: '#f0ead9',
+  water: 'rgba(82,128,215,0.5)', waterDeep: 'rgba(44,64,150,0.72)',
+  fog: 'rgba(140,70,150,0.08)', particle: '#ffd9a8', lightning: 0
+};
+
 const LEVEL_NAMES = [
-  'Mosswake Trail', 'Totem Hollow', 'Whispering Pines', 'Emberwood Heart',
+  'Duskmere Strand', 'Totem Hollow', 'Whispering Pines', 'Emberwood Heart',
   'Fenlight Shallows', 'Drowned Roots', 'Croaking Deep', "Leviathan's Maw",
   'Glimmer Descent', 'Shardfall Chasm', 'Echoing Vault', "Tyrant's Lair",
   'Broken Causeway', 'Skyfall Ruins', 'The Old Spire', "Warlord's Gate",
@@ -82,10 +97,167 @@ const LEVEL_NAMES = [
 
 const Levels = {
   count: 20,
-  themeFor(L) { return THEMES[Math.floor((L - 1) / 4)]; },
+  themeFor(L) { return L === 1 ? DESERT_THEME : THEMES[Math.floor((L - 1) / 4)]; },
   themeIndex(L) { return Math.floor((L - 1) / 4); },
 
+  // ---------------------------------------------------------------
+  // Level 1 — hand-built alien beach: slopes, jumpable cliffs, an
+  // oasis pool, the reference creatures, and decorative gems/palms.
+  // ---------------------------------------------------------------
+  level1() {
+    const rnd = U.rng(9241);
+    const W = 430, H = 72;
+    const tiles = new Uint8Array(W * H);
+    const enemies = [], items = [], movers = [], checkpoints = [], deco = [], flora = [];
+    const plats = [];
+    const arenaLen = 46, arenaStart = W - arenaLen;
+
+    const groundAt = new Int16Array(W).fill(-1);
+    function col(x, g) { if (x >= 0 && x < W) groundAt[x] = g; }
+
+    let g = 56, x = 0;
+    const run = (len, fn) => { for (let i = 0; i < len && x < arenaStart; i++, x++) { col(x, g); if (fn) fn(i, x); } };
+    const slope = (dh, stepEvery) => {      // 1-tile steps read as slopes; dh<0 climbs
+      const dir = Math.sign(dh);
+      for (let s = 0; s < Math.abs(dh) && x < arenaStart; s++) {
+        g = U.clamp(g + dir, 18, 62);
+        run(stepEvery || 2);
+      }
+    };
+    const cliff = (dh) => { g = U.clamp(g - dh, 18, 62); };
+    const gap = (len) => { for (let i = 0; i < len && x < arenaStart; i++, x++) groundAt[x] = -1; };
+    const pool = (len, depth) => {
+      const surf = g;
+      for (let i = 0; i < len && x < arenaStart; i++, x++) {
+        const floor = surf + depth - (i === 0 || i === len - 1 ? 1 : 0);
+        groundAt[x] = floor;
+        for (let yy = surf; yy < floor; yy++) tiles[yy * W + x] = T_WATER;
+        if (i === Math.floor(len / 2)) flora.push({ kind: 'gemBlue', x: x * TILE + 16, y: (floor) * TILE });
+      }
+    };
+    const foe = (type, hp, dxTiles) =>
+      enemies.push({ type, x: (x + (dxTiles || 0)) * TILE + 16, y: g * TILE, hp });
+    const item = (kind, dxTiles) =>
+      items.push({ kind, x: (x + (dxTiles || 0)) * TILE + 16, y: g * TILE - 10 });
+    const palm = (kind, dxTiles) =>
+      deco.push({ kind, x: (x + (dxTiles || 0)) * TILE, y: g * TILE });
+    const plant = (kind, dxTiles) =>
+      flora.push({ kind, x: (x + (dxTiles || 0)) * TILE + 16, y: g * TILE });
+    const gems = ['gemRock', 'gemTeal', 'gemGreen', 'gemRed', 'gemBlue', 'gemPurp'];
+    const gemPatch = (n) => {
+      for (let k = 0; k < n; k++)
+        flora.push({ kind: gems[Math.floor(rnd() * gems.length)], x: (x + k * 1.2) * TILE + rnd() * 20, y: g * TILE });
+    };
+
+    // --- the beach walk ------------------------------------------
+    run(6); palm('palmL', -2);
+    run(8, i => { if (i === 3) item('gun'); if (i === 5) item('ammo'); });
+    plant('grassA', -6); gemPatch(2);
+    slope(-3, 2);                                   // sandy rise
+    run(6, i => { if (i === 2) foe('dog', 3); });
+    palm('palmM', 1); plant('fernR', 3);
+    cliff(2); run(7, i => { if (i === 3) foe('pillbug', 4); });   // jump-up ledge
+    gemPatch(3);
+    slope(3, 2);                                    // back down
+    run(10, i => { if (i === 2) foe('alien', 3); if (i === 7) foe('spiderW', 3); if (i === 4) item('rock'); });
+    palm('palmR', 2);
+    gap(4);
+    run(4); checkpoints.push({ x: x * TILE, y: g * TILE }); run(2);
+    run(10, i => { if (i === 3) foe('octo', 10); if (i === 8) item('spear'); });
+    plant('grassA', -4);
+    // stepped cliff — two hops up
+    cliff(2); run(3, i => { if (i === 1) gemPatch(1); });
+    cliff(2); run(9, i => { if (i === 2) foe('spiderC', 3); if (i === 6) foe('dog', 3); });
+    palm('palmM', 0); plant('fernR', 2);
+    slope(4, 2);
+    run(4, i => { if (i === 1) item('ammo'); });
+    pool(9, 4);                                     // the oasis
+    run(6, i => { if (i === 2) foe('crab', 4); });
+    plant('grassA', 1); gemPatch(2);
+    gap(5);
+    run(8, i => { if (i === 3) foe('spiderW', 3); if (i === 6) foe('alien', 3); });
+    palm('palmL', 1);
+    // rock-hop ascent
+    plats.push({ x: x + 1, y: g - 3, len: 2 }, { x: x + 4, y: g - 6, len: 2 });
+    cliff(6); gap(6);
+    run(3); checkpoints.push({ x: x * TILE, y: g * TILE });
+    run(9, i => { if (i === 2) foe('pillbug', 4); if (i === 6) foe('spiderC', 3); });
+    gemPatch(3); palm('palmR', 0);
+    slope(4, 2);
+    run(8, i => { if (i === 3) foe('dog', 3); if (i === 6) item('skull'); });
+    pool(12, 5);                                    // long lagoon swim
+    run(6, i => { if (i === 2) foe('crab', 4); });
+    plant('fernR', -3);
+    slope(-4, 2);                                   // climb the headland
+    run(6, i => { if (i === 2) foe('octo', 10); });
+    palm('palmM', 1);
+    cliff(2); run(5, i => { if (i === 1) foe('spiderW', 3); });
+    cliff(2); run(6, i => { if (i === 2) gemPatch(2); });
+    slope(6, 2);
+    run(8, i => { if (i === 2) foe('alien', 3); if (i === 5) foe('dog', 3); if (i === 3) item('rock'); });
+    gap(4);
+    run(10, i => { if (i === 3) foe('spiderC', 3); if (i === 7) foe('crab', 4); });
+    palm('palmL', 2); gemPatch(2);
+    // fill any remaining approach with beach + stragglers
+    while (x < arenaStart - 14) {
+      const pick = rnd();
+      if (pick < 0.3) slope(rnd() < 0.5 ? -2 : 2, 2);
+      else if (pick < 0.4) gap(3 + Math.floor(rnd() * 2));
+      else run(6 + Math.floor(rnd() * 6), i => {
+        if (i === 2 && rnd() < 0.5) {
+          const t = ['dog', 'pillbug', 'spiderW', 'spiderC', 'crab', 'alien'][Math.floor(rnd() * 6)];
+          foe(t, t === 'pillbug' || t === 'crab' ? 4 : 3);
+        }
+        if (i === 4 && rnd() < 0.3) item(['rock', 'skull', 'ammo'][Math.floor(rnd() * 3)]);
+        if (i === 1 && rnd() < 0.3) gemPatch(1 + Math.floor(rnd() * 2));
+        if (i === 5 && rnd() < 0.25) palm(['palmL', 'palmM', 'palmR'][Math.floor(rnd() * 3)], 0);
+        if (i === 3 && rnd() < 0.4) plant(rnd() < 0.5 ? 'grassA' : 'fernR', 0);
+      });
+    }
+    run(6); checkpoints.push({ x: x * TILE, y: g * TILE }); run(8);
+
+    // --- boss arena ------------------------------------------------
+    const gA = U.clamp(g, 30, 56);
+    g = gA;
+    for (; x < W; x++) {
+      col(x, gA);
+      if (x >= W - 3) for (let yy = gA - 16; yy < gA; yy++) tiles[yy * W + x] = T_SOLID;
+    }
+    deco.push({ kind: 'palmR', x: (arenaStart + 6) * TILE, y: gA * TILE });
+
+    // --- rasterize ---------------------------------------------------
+    for (let xx = 0; xx < W; xx++) {
+      const gg = groundAt[xx];
+      if (gg < 0) continue;
+      for (let yy = gg; yy < H; yy++) if (tiles[yy * W + xx] !== T_WATER) tiles[yy * W + xx] = T_SOLID;
+    }
+    plats.forEach(pl => { for (let i = 0; i < pl.len; i++) if (pl.x + i < W) tiles[pl.y * W + pl.x + i] = T_PLAT; });
+
+    // snap decorations to the finished terrain so nothing floats
+    const snap = list => list.forEach(o => {
+      const cxx = U.clamp(Math.floor(o.x / TILE), 0, W - 1);
+      if (groundAt[cxx] >= 0) o.y = groundAt[cxx] * TILE;
+    });
+    snap(flora); snap(deco);
+
+    return {
+      L: 1, W, H, tiles, d: 0,
+      theme: DESERT_THEME, themeIndex: 0,
+      name: LEVEL_NAMES[0],
+      spawnX: 3 * TILE, spawnY: 56 * TILE - 40,
+      enemies, items, movers, checkpoints, deco, flora,
+      arenaX: arenaStart * TILE,
+      boss: {
+        id: 1, key: 'sporefather', name: Sprites.bossDefs[0].name, hp: 20,
+        x: (arenaStart + 30) * TILE, y: gA * TILE,
+        groundY: gA * TILE,
+        arenaL: (arenaStart + 2) * TILE, arenaR: (W - 3) * TILE
+      }
+    };
+  },
+
   generate(L) {
+    if (L === 1) return this.level1();
     const rnd = U.rng(L * 7919 + 1013);
     const d = (L - 1) / 19;                       // 0..1 difficulty
     const W = 380 + L * 26, H = 72;

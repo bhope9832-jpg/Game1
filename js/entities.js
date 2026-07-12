@@ -93,6 +93,30 @@ class Player {
     this.slideT = 0; this.invuln = 0; this.hurtT = 0;
     this.coyote = 0; this.kickHit = new Set(); this.deadT = 0;
     this.wasInWater = false; this.vineCd = 0;
+    this.grabbedBy = null; this.squishT = 0;   // spider latch
+    this.downBounced = 0; this.downT = 0;      // knocked-down tumble
+  }
+
+  // a latcher spider grabs hold of her
+  grab(spider, game) {
+    if (this.state === 'dead' || this.state === 'grabbed' || this.state === 'downed') return false;
+    this.state = 'grabbed';
+    this.grabbedBy = spider;
+    this.vx = 0; this.vy = 0;
+    this.action = null; this.slideT = 0;
+    this.setAnim('grabbed');
+    SFX.play('roar');
+    game.spawnParticles(this.x, this.y - 10, 8, '#d9b8ff');
+    return true;
+  }
+
+  // spider lets go — she drops and takes a tumble
+  release(game) {
+    this.grabbedBy = null;
+    this.state = 'downed';
+    this.downBounced = 0; this.downT = 0;
+    this.vx = -this.facing * 60;
+    this.vy = -120;
   }
 
   box() { return { x: this.x, y: this.y, w: this.w, h: this.h }; }
@@ -131,6 +155,42 @@ class Player {
       this.vy = Math.min(this.vy + 1900 * dt, 900);
       this.y += this.vy * dt;
       if (this.deadT > 1.6) game.respawn();
+      return;
+    }
+
+    if (this.state === 'grabbed') {
+      // helpless while the spider squeezes — it moves us nowhere
+      this.squishT = Math.max(0, this.squishT - dt);
+      this.setAnim('grabbed');
+      if (!this.grabbedBy || this.grabbedBy.dead) this.release(game);
+      return;
+    }
+
+    if (this.state === 'downed') {
+      // dropped by the spider: fall, bounce on her side, take a hit
+      this.downT += dt;
+      const wasAir = !this.onGround;
+      this.vy = Math.min(this.vy + 1900 * dt, 900);
+      Phys.move(this, lvl, dt);
+      this.vx *= 0.96;
+      if (this.onGround && wasAir) {
+        if (this.downBounced === 0) {
+          this.downBounced = 1;
+          this.vy = -170; this.vx = -this.facing * 50;
+          this.hp = Math.max(0, this.hp - 1);
+          SFX.play('hurt');
+          game.shake = Math.max(game.shake, 5);
+          game.spawnParticles(this.x, this.y + this.h / 2, 8, '#d9ac74');
+          this.downT = 0;
+          if (this.hp <= 0) { this.die(game); return; }
+        } else if (this.downBounced === 1) {
+          this.downBounced = 2; this.downT = 0;
+        }
+      }
+      if (this.downBounced >= 2 && this.downT > 0.55) {
+        this.state = 'normal'; this.invuln = 1.8;
+      }
+      this.setAnim('hurt');
       return;
     }
 
@@ -279,6 +339,21 @@ class Player {
       if (this.h > oldH) this.y -= (this.h - oldH) / 2; else if (this.h < oldH) this.y += (oldH - this.h) / 2;
       Phys.move(this, lvl, dt, { drop: dropThrough && this.isOnPlatformOnly(lvl) });
 
+      // step-up assist: 1-tile rises walk like slopes
+      if (this.hitWall && this.onGround && dir !== 0 && this.state === 'normal' && !this.action) {
+        const tx = Math.floor((this.x + dir * (this.w / 2 + 4)) / TILE);
+        const footRow = Math.floor((this.y + this.h / 2 - 2) / TILE);
+        if (Phys.tileAt(lvl, tx, footRow) === T_SOLID &&
+            Phys.tileAt(lvl, tx, footRow - 1) !== T_SOLID &&
+            Phys.tileAt(lvl, tx, footRow - 2) !== T_SOLID &&
+            !Phys.rectHitsSolid(lvl, this.x + dir * 6, footRow * TILE - this.h / 2 - 1, this.w, this.h)) {
+          this.y = footRow * TILE - this.h / 2 - 0.5;
+          this.x += dir * 6;
+          this.vx = dir * Math.max(Math.abs(this.vx), 120);
+          this.onGround = true;
+        }
+      }
+
       // pick animation
       if (this.action === 'kick') this.setAnim('kick');
       else if (this.action === 'throw') this.setAnim('throw');
@@ -345,6 +420,26 @@ class Player {
       Sprites.draw(g, sh, 'hurt', 0, this.x, yB, this.facing < 0);
       g.restore(); return;
     }
+    if (this.state === 'grabbed') {
+      // squeezed — squish pulse on her latched pose
+      const sq = this.squishT > 0 ? Math.sin(this.squishT * 40) * 0.5 + 0.5 : 0;
+      g.save();
+      g.translate(Math.round(this.x), Math.round(yB));
+      g.scale(1 + sq * 0.08, 1 - sq * 0.14);
+      Sprites.draw(g, sh, 'grabbed', 0, 0, 0, this.facing < 0);
+      g.restore();
+      return;
+    }
+    if (this.state === 'downed') {
+      // tumbling, then flat on her side
+      const lying = this.downBounced >= 1;
+      g.save();
+      g.translate(Math.round(this.x), Math.round(yB));
+      g.rotate(-this.facing * (lying ? 1.35 : 0.3 + this.downT * 0.8));
+      Sprites.draw(g, sh, 'hurt', 0, 0, lying ? 12 : 0, this.facing < 0);
+      g.restore();
+      return;
+    }
     Sprites.draw(g, sh, this.anim, fi, this.x, yB, this.facing < 0);
     // pistol in her extended hand while firing
     if (this.action === 'shoot' && Sprites.props)
@@ -365,7 +460,15 @@ const ENEMY_STATS = {
   spitter: { w: 26, h: 34, speed: 32, dmg: 1, fly: false, big: false },
   wisp:    { w: 24, h: 24, speed: 55, dmg: 1, fly: true,  big: false },
   brute:   { w: 56, h: 52, speed: 30, dmg: 2, fly: false, big: true },
-  stalker: { w: 34, h: 66, speed: 46, dmg: 2, fly: false, big: true }
+  stalker: { w: 34, h: 66, speed: 46, dmg: 2, fly: false, big: true },
+  // beach-scene creatures (drawn from the reference art)
+  dog:     { w: 42, h: 34, speed: 66, dmg: 1, fly: false, big: false, scene: 'dog',     scale: 0.36, side: true },
+  alien:   { w: 24, h: 46, speed: 34, dmg: 1, fly: false, big: false, scene: 'alien',   scale: 0.36 },
+  octo:    { w: 52, h: 42, speed: 24, dmg: 2, fly: false, big: true,  scene: 'octo',    scale: 0.45 },
+  pillbug: { w: 38, h: 26, speed: 32, dmg: 1, fly: false, big: false, scene: 'pillbug', scale: 0.36, side: true },
+  crab:    { w: 42, h: 30, speed: 46, dmg: 1, fly: false, big: false, scene: 'crab',    scale: 0.38 },
+  spiderW: { w: 34, h: 30, speed: 48, dmg: 1, fly: false, big: false, scene: 'spiderW', scale: 0.33, latcher: true },
+  spiderC: { w: 34, h: 28, speed: 54, dmg: 1, fly: false, big: false, scene: 'spiderC', scale: 0.34, latcher: true }
 };
 
 class Enemy {
@@ -382,9 +485,13 @@ class Enemy {
     this.dead = false; this.onGround = false; this.hitWall = false;
     this.charging = 0; this.windup = 0;
     this.stun = 0;
+    // latcher (spider) fields
+    this.leaping = false; this.latched = false;
+    this.squeezes = 0; this.squeezeT = 0; this.squishT = 0; this.releaseT = 0;
   }
 
   hurt(n, fromX, game) {
+    if (this.latched) return;          // can't be hit while wrapped around Kaya
     this.hp -= n; this.flash = 0.16;
     SFX.play('hit');
     game.spawnParticles(this.x, this.y, 6, '#d9ffb0');
@@ -404,6 +511,115 @@ class Enemy {
     this.cd -= dt;
     const dx = p.x - this.x, dy = p.y - this.y;
     const near = Math.abs(dx) < 260 && Math.abs(dy) < 110;
+
+    if (this.latched) {
+      // ---- riding Kaya, squeezing her -----------------------------
+      this.x = p.x + p.facing * 2;
+      this.y = p.y - 8;
+      this.vx = 0; this.vy = 0;
+      this.squishT = Math.max(0, this.squishT - dt);
+      this.squeezeT -= dt;
+      if (this.squeezeT <= 0) {
+        this.squeezes++;
+        this.squishT = 0.25; p.squishT = 0.25;
+        p.hp = Math.max(0, p.hp - 1);
+        SFX.play('hurt');
+        game.spawnParticles(p.x, p.y - 10, 8, '#e05a1e');
+        game.shake = Math.max(game.shake, 4);
+        if (p.hp <= 0) { this.detach(p, game); p.die(game); return; }
+        if (this.squeezes >= 3) { this.detach(p, game); return; }
+        this.squeezeT = 0.75;
+      }
+      return;
+    }
+    if (this.st.latcher) {
+      this.releaseT = Math.max(0, this.releaseT - dt);
+      if (this.leaping) {
+        this.vy = Math.min(this.vy + 1900 * dt, 900);
+        Phys.move(this, lvl, dt);
+        // grab her mid-flight
+        if (p.state !== 'dead' && p.state !== 'grabbed' && p.state !== 'downed' &&
+            p.invuln <= 0 && U.aabb(this.x, this.y, this.w + 8, this.h + 8, p.x, p.y, p.w, p.h)) {
+          if (p.grab(this, game)) {
+            this.leaping = false; this.latched = true;
+            this.squeezes = 0; this.squeezeT = 0.6;
+            return;
+          }
+        }
+        if (this.onGround) { this.leaping = false; this.cd = 1.4; }
+        this.anim = 'attack';
+        return;
+      }
+      if (this.windup > 0) {
+        this.windup -= dt; this.vx = 0;
+        if (this.windup <= 0) {
+          this.leaping = true;
+          this.vx = U.clamp(dx * 2.4, -330, 330);
+          this.vy = -340;
+          SFX.play('jump');
+        }
+      } else if (near && Math.abs(dy) < 80 && this.cd <= 0 && this.releaseT <= 0 &&
+                 p.state !== 'dead' && p.state !== 'grabbed' && p.state !== 'downed' && p.invuln <= 0) {
+        this.windup = 0.35; this.dir = Math.sign(dx) || 1;
+        this.anim = 'attack'; this.animT = 0;
+      } else {
+        this.patrol(lvl, dt);
+      }
+      this.vy = Math.min(this.vy + 1900 * dt, 900);
+      Phys.move(this, lvl, dt);
+      return;
+    }
+    if (this.type === 'dog') {
+      // feral chaser
+      const chase = near && Math.abs(dy) < 70 && p.state !== 'dead';
+      if (chase) { this.dir = Math.sign(dx) || 1; this.vx = this.dir * 120; this.anim = 'walk'; }
+      else this.patrol(lvl, dt);
+      this.vy = Math.min(this.vy + 1900 * dt, 900);
+      Phys.move(this, lvl, dt);
+      if (this.hitWall && this.onGround) this.dir *= -1;
+      return;
+    }
+    if (this.type === 'alien') {
+      // grey — lobs psychic spit from range
+      if (near && p.state !== 'dead' && this.cd <= 0) {
+        this.anim = 'attack'; this.animT = 0; this.cd = 2.6;
+        this.attackT = 0.4; this.dir = Math.sign(dx) || 1;
+      }
+      if (this.attackT > 0) {
+        this.attackT -= dt; this.vx = 0;
+        if (this.attackT <= 0.2 && !this.spat) {
+          game.addProj(new Projectile('spit', this.x + this.dir * 12, this.y - 12,
+            this.dir * 220 + dx * 0.4, -190, false));
+          this.spat = true;
+        }
+        if (this.attackT <= 0) { this.spat = false; this.anim = 'walk'; }
+      } else this.patrol(lvl, dt);
+      this.vy = Math.min(this.vy + 1900 * dt, 900);
+      Phys.move(this, lvl, dt);
+      return;
+    }
+    if (this.type === 'octo' || this.type === 'crab') {
+      // heavy scuttler with a short lunge
+      if (this.charging > 0) {
+        this.charging -= dt;
+        this.vx = this.dir * (this.type === 'octo' ? 150 : 190);
+        this.anim = 'attack';
+        if (this.hitWall || this.charging <= 0) { this.charging = 0; this.cd = 2.2; this.anim = 'walk'; }
+      } else if (near && Math.abs(dy) < 50 && this.cd <= 0 && p.state !== 'dead') {
+        this.dir = Math.sign(dx) || 1; this.charging = 0.55;
+        this.anim = 'attack'; this.animT = 0;
+      } else this.patrol(lvl, dt);
+      this.vy = Math.min(this.vy + 1900 * dt, 900);
+      Phys.move(this, lvl, dt);
+      return;
+    }
+    if (this.type === 'pillbug') {
+      this.patrol(lvl, dt);
+      this.vy = Math.min(this.vy + 1900 * dt, 900);
+      Phys.move(this, lvl, dt);
+      if (this.hitWall && this.onGround) this.dir *= -1;
+      return;
+    }
 
     if (this.st.fly) {
       // wisp — hovers, drifts toward the player
@@ -484,6 +700,17 @@ class Enemy {
     this.anim = 'walk';
   }
 
+  // spider lets go: leaps back off her and drops Kaya
+  detach(p, game) {
+    this.latched = false;
+    this.releaseT = 2.5; this.cd = 2.5;
+    this.vx = -p.facing * 260; this.vy = -330;
+    this.leaping = true;
+    SFX.play('jump');
+    game.spawnParticles(this.x, this.y, 6, '#d9b8ff');
+    if (p.grabbedBy === this) p.release(game);
+  }
+
   // extra reach for the big attackers
   attackBox() {
     if (this.type === 'stalker' && this.anim === 'attack' && this.attackT > 0 && this.attackT < 0.3)
@@ -492,14 +719,32 @@ class Enemy {
   }
 
   draw(g, game) {
-    const sh = Sprites.enemies[this.type];
-    const anim = this.flash > 0 ? 'hurt' : this.anim;
-    const fi = Sprites.frame(sh, anim, this.animT);
-    g.save();
-    const hue = game.level.themeIndex * 18;
-    if (hue) g.filter = 'hue-rotate(' + hue + 'deg)';
-    Sprites.draw(g, sh, anim, fi, this.x, this.y + this.h / 2 + 3, this.dir < 0);
-    g.restore();
+    if (this.st.scene && Sprites.scene1) {
+      // beach-scene creature, animated with bob / tilt / squash
+      const walking = Math.abs(this.vx) > 4 && this.onGround;
+      const bobPh = this.t * 9;
+      const rot = walking ? Math.sin(bobPh) * 0.07 : 0;
+      const bob = walking ? Math.abs(Math.sin(bobPh)) * 2 : 0;
+      let sy = this.st.scale;
+      if (this.windup > 0) sy *= 0.85;                          // coiling to leap
+      if (this.squishT > 0) sy *= 0.8 + Math.sin(this.squishT * 40) * 0.08;
+      if (this.leaping) { /* stretched in flight */ sy *= 1.08; }
+      const flip = this.st.side ? this.dir > 0 : this.dir < 0;  // side art faces left
+      g.save();
+      if (this.flash > 0) { g.filter = 'brightness(1.9)'; }
+      Sprites.drawScene1(g, this.st.scene, this.x, this.y + this.h / 2 + 3 - bob,
+        flip, this.st.scale, rot + (this.leaping ? -this.dir * 0.15 : 0), sy);
+      g.restore();
+    } else {
+      const sh = Sprites.enemies[this.type];
+      const anim = this.flash > 0 ? 'hurt' : this.anim;
+      const fi = Sprites.frame(sh, anim, this.animT);
+      g.save();
+      const hue = game.level.themeIndex * 18;
+      if (hue && !game.level.theme.desert) g.filter = 'hue-rotate(' + hue + 'deg)';
+      Sprites.draw(g, sh, anim, fi, this.x, this.y + this.h / 2 + 3, this.dir < 0);
+      g.restore();
+    }
     // health bar — every enemy has one
     const bw = Math.max(30, this.w + 8);
     const bx = this.x - bw / 2, by = this.y - this.h / 2 - 12;

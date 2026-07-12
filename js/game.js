@@ -130,6 +130,9 @@ const Game = {
   enemies: [], projs: [], orbs: [], pickups: [], movers: [], totems: [], particles: [], popups: [],
   boss: null, portal: null,
   camX: 0, camY: 0, shake: 0, time: 0, levelTime: 0,
+  zoom: 1.45,
+  vw() { return VIEW_W / this.zoom; },
+  vh() { return VIEW_H / this.zoom; },
   score: 0, gems: 0, orbsCollected: 0, kills: 0, deaths: 0,
   checkpoint: null, bannerT: 0, flashT: 0, lightningT: 0, boltSeed: 0,
   selIdx: 0, curLevel: 1,
@@ -391,9 +394,10 @@ const Game = {
       }
     }
 
-    // enemy contact + attack boxes
+    // enemy contact + attack boxes (latchers hurt by squeezing, not touch)
     for (const e of this.enemies) {
-      if (p.state === 'dead') break;
+      if (p.state === 'dead' || p.state === 'grabbed' || p.state === 'downed') break;
+      if (e.st.latcher || e.latched) continue;
       if (U.aabb(p.x, p.y, p.w, p.h, e.x, e.y, e.w, e.h)) p.damage(e.st.dmg, e.x, this);
       const ab = e.attackBox && e.attackBox();
       if (ab && U.aabb(p.x, p.y, p.w, p.h, ab.x, ab.y, ab.w, ab.h)) p.damage(ab.dmg, e.x, this);
@@ -420,7 +424,7 @@ const Game = {
             U.aabb(pr.x, pr.y, pr.r * 2, pr.r * 2, boss.x, boss.y, boss.w, boss.h)) {
           boss.hurt(pr.dmg, pr.x - pr.vx, this); pr.dead = true;
         }
-      } else if (p.state !== 'dead' &&
+      } else if (p.state !== 'dead' && p.state !== 'grabbed' && p.state !== 'downed' &&
           U.aabb(pr.x, pr.y, pr.r * 2, pr.r * 2, p.x, p.y, p.w, p.h)) {
         p.damage(pr.dmg, pr.x - pr.vx, this); pr.dead = true;
       }
@@ -467,9 +471,10 @@ const Game = {
       a.x += a.vx * dt; a.y += Math.sin(this.time * a.s + a.ph) * 12 * dt;
     }
 
-    // camera
-    const targX = U.clamp(p.x + p.facing * 46 - VIEW_W / 2, 0, lvl.W * TILE - VIEW_W);
-    const targY = U.clamp(p.y - VIEW_H * 0.58, 0, lvl.H * TILE - VIEW_H);
+    // camera (zoomed-in view)
+    const vw = this.vw(), vh = this.vh();
+    const targX = U.clamp(p.x + p.facing * 36 - vw / 2, 0, lvl.W * TILE - vw);
+    const targY = U.clamp(p.y - vh * 0.56, 0, lvl.H * TILE - vh);
     let minX = 0;
     if (boss.active && !boss.dead) minX = Math.max(0, boss.spec.arenaL - 20);
     this.camX += (Math.max(targX, minX) - this.camX) * Math.min(1, dt * 6);
@@ -486,9 +491,95 @@ const Game = {
     this.state = 'clear';
   },
 
+  // ---------------- alien-beach backdrop (level 1) ----------------
+  // recreates the reference: nebula sky, alien spires, dusk sea
+  drawDesertBg(g, cx) {
+    const th = this.level.theme;
+    const HZ = VIEW_H * 0.66;                       // horizon line
+    const sky = g.createLinearGradient(0, 0, 0, VIEW_H);
+    sky.addColorStop(0, th.skyTop);
+    sky.addColorStop(0.42, th.skyMid);
+    sky.addColorStop(0.62, '#b8486a');
+    sky.addColorStop(0.66, th.skyBot);
+    sky.addColorStop(0.75, '#3a2a6e');
+    sky.addColorStop(1, '#241a4e');
+    g.fillStyle = sky; g.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    // stars
+    for (let i = 0; i < 60; i++) {
+      const sx = (U.hash2(i, 7) * 1100 - cx * 0.01) % VIEW_W;
+      const sy = U.hash2(i, 13) * HZ * 0.7;
+      g.globalAlpha = 0.3 + Math.sin(this.time * 2 + i) * 0.25;
+      g.fillStyle = '#e8ecff';
+      g.fillRect((sx + VIEW_W) % VIEW_W, sy, 2, 2);
+    }
+    g.globalAlpha = 1;
+
+    // swirling nebula — wispy, off-axis
+    const nx = 640 - cx * 0.015, ny = 88;
+    g.save(); g.translate(nx, ny); g.rotate(-0.55);
+    for (const [ox, oy, rx, ry, col, a, rr] of [
+      [-30, 10, 120, 30, '#5a2f90', 0.26, 0.3], [25, -12, 95, 24, '#8a4ac0', 0.22, -0.25],
+      [0, 0, 62, 15, '#3fd6c0', 0.24, 0.1], [-14, 6, 30, 8, '#a8fff0', 0.4, 0.4],
+      [4, -2, 12, 4, '#ffffff', 0.7, 0]
+    ]) {
+      g.globalAlpha = a;
+      g.fillStyle = col;
+      g.beginPath(); g.ellipse(ox, oy, rx, ry, rr, 0, Math.PI * 2); g.fill();
+    }
+    g.restore(); g.globalAlpha = 1;
+
+    // alien rock spires — two parallax bands
+    for (const [fac, col, seed, hmax] of [[0.08, '#3a1f4e', 5, 120], [0.16, '#4a2456', 11, 170]]) {
+      g.fillStyle = col;
+      for (let k = 0; k < 12; k++) {
+        const w = 1600;
+        let bx = ((U.hash2(k, seed) * w - cx * fac) % w + w) % w - 100;
+        const ht = 50 + U.hash2(k, seed + 1) * hmax;
+        const bw = 16 + U.hash2(k, seed + 2) * 26;
+        g.beginPath();
+        g.moveTo(bx - bw, HZ + 4);
+        g.quadraticCurveTo(bx - bw * 0.35, HZ - ht * 0.75, bx - bw * 0.28, HZ - ht);
+        g.ellipse(bx, HZ - ht - 4, bw * 0.42, 9, 0, Math.PI, 0);   // bulbous top
+        g.quadraticCurveTo(bx + bw * 0.35, HZ - ht * 0.7, bx + bw, HZ + 4);
+        g.closePath(); g.fill();
+      }
+    }
+
+    // the dusk sea
+    const sea = g.createLinearGradient(0, HZ, 0, VIEW_H);
+    sea.addColorStop(0, '#8a3a5e'); sea.addColorStop(0.25, '#4a2a6e'); sea.addColorStop(1, '#241a4e');
+    g.fillStyle = sea; g.fillRect(0, HZ, VIEW_W, VIEW_H - HZ);
+    for (let i = 0; i < 14; i++) {                                 // sun-glint ripples
+      const wy = HZ + 5 + i * 7;
+      const ww = 60 + U.hash2(i, 3) * 160;
+      const wx = ((U.hash2(i, 9) * 1100 + Math.sin(this.time * 0.8 + i) * 30 - cx * 0.05) % 1100 + 1100) % 1100 - 50;
+      g.globalAlpha = 0.25 - i * 0.013;
+      g.fillStyle = i < 4 ? '#ffb45e' : '#c9a2ff';
+      g.fillRect(wx, wy, ww, 2);
+    }
+    g.globalAlpha = 1;
+    // distant headland silhouettes
+    g.fillStyle = '#38204e';
+    g.beginPath(); g.ellipse(160 - cx * 0.06, HZ + 8, 130, 14, 0, Math.PI, 0); g.fill();
+    g.beginPath(); g.ellipse(820 - cx * 0.06, HZ + 6, 170, 12, 0, Math.PI, 0); g.fill();
+  },
+
   // ---------------- background building ---------------------------
   buildBackground() {
     const th = this.level.theme;
+    if (th.desert) {
+      // level 1 draws its backdrop procedurally each frame
+      this.bg = null; this.clouds = [];
+      this.ambient = [];
+      for (let i = 0; i < 40; i++)
+        this.ambient.push({
+          x: Math.random() * this.level.W * TILE, y: Math.random() * VIEW_H * 1.4,
+          vx: 5 + Math.random() * 12, s: 0.5 + Math.random() * 1.5,
+          ph: Math.random() * 6, r: 1 + Math.random() * 1.8, a: 0.25 + Math.random() * 0.4
+        });
+      return;
+    }
     const rnd = U.rng(this.level.L * 31 + 7);
     const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 
@@ -575,6 +666,9 @@ const Game = {
     const shy = this.shake ? (Math.random() - 0.5) * this.shake : 0;
     const cx = this.camX + shx, cy = this.camY + shy;
 
+    if (th.desert) {
+      this.drawDesertBg(g, cx);
+    } else {
     // sky
     const sky = g.createLinearGradient(0, 0, 0, VIEW_H);
     sky.addColorStop(0, th.skyTop); sky.addColorStop(1, th.skyBot);
@@ -596,6 +690,7 @@ const Game = {
       g.ellipse(x + c.w * 0.25, c.y - 10, c.w / 3.2, c.w / 9, 0, 0, Math.PI * 2);
       g.fill();
     }
+    }
 
     // lightning flash
     if (this.flashT > 0) {
@@ -609,30 +704,51 @@ const Game = {
       g.stroke();
     }
 
-    // parallax strips
-    const tile = (img, fac, extraDrift) => {
-      const w = img.width;
-      let off = ((cx * fac + (extraDrift || 0)) % w + w) % w;
-      g.drawImage(img, -off, 0); g.drawImage(img, -off + w, 0);
-    };
-    tile(this.bg.far, 0.15);
-    tile(this.bg.mid, 0.35, this.time * 2);
-    tile(this.bg.near, 0.6);
+    // parallax strips (forest worlds only)
+    if (this.bg) {
+      const tile = (img, fac, extraDrift) => {
+        const w = img.width;
+        let off = ((cx * fac + (extraDrift || 0)) % w + w) % w;
+        g.drawImage(img, -off, 0); g.drawImage(img, -off + w, 0);
+      };
+      tile(this.bg.far, 0.15);
+      tile(this.bg.mid, 0.35, this.time * 2);
+      tile(this.bg.near, 0.6);
 
-    // fog band (slow drift)
-    g.fillStyle = th.fog;
-    const fy = 300 + Math.sin(this.time * 0.4) * 20;
-    g.beginPath();
-    g.moveTo(0, fy);
-    for (let x = 0; x <= VIEW_W; x += 60)
-      g.quadraticCurveTo(x + 30, fy + Math.sin(x * 0.02 + this.time * 0.7) * 26, x + 60, fy);
-    g.lineTo(VIEW_W, VIEW_H); g.lineTo(0, VIEW_H); g.closePath(); g.fill();
+      // fog band (slow drift)
+      g.fillStyle = th.fog;
+      const fy = 300 + Math.sin(this.time * 0.4) * 20;
+      g.beginPath();
+      g.moveTo(0, fy);
+      for (let x = 0; x <= VIEW_W; x += 60)
+        g.quadraticCurveTo(x + 30, fy + Math.sin(x * 0.02 + this.time * 0.7) * 26, x + 60, fy);
+      g.lineTo(VIEW_W, VIEW_H); g.lineTo(0, VIEW_H); g.closePath(); g.fill();
+    }
 
-    // ---- world space -----------------------------------------------
+    // ---- world space (zoomed) ---------------------------------------
     g.save();
+    g.scale(this.zoom, this.zoom);
     g.translate(-Math.round(cx), -Math.round(cy));
 
+    // big scenery behind the terrain (palms, boulders)
+    if (lvl.deco && Sprites.scene1) {
+      const scales = { palmL: 0.6, palmM: 0.62, palmR: 0.58, rockMid: 0.55 };
+      for (const d of lvl.deco) {
+        if (d.x < cx - 220 || d.x > cx + this.vw() + 220) continue;
+        Sprites.drawScene1(g, d.kind, d.x, d.y + 2, false, scales[d.kind] || 0.55);
+      }
+    }
+
     this.drawTiles(g, cx, cy);
+
+    // small flora + decorative gems on top of the sand
+    if (lvl.flora && Sprites.scene1) {
+      const scales = { grassA: 0.55, fernR: 0.5 };
+      for (const f of lvl.flora) {
+        if (f.x < cx - 80 || f.x > cx + this.vw() + 80) continue;
+        Sprites.drawScene1(g, f.kind, f.x, f.y + 2, false, scales[f.kind] || 0.55);
+      }
+    }
 
     for (const m of this.movers) m.draw(g, th);
 
@@ -649,12 +765,14 @@ const Game = {
 
     for (const it of this.pickups) it.draw(g);
     for (const e of this.enemies) {
-      if (e.x > cx - 80 && e.x < cx + VIEW_W + 80) e.draw(g, this);
+      if (e.latched) continue;   // drawn on top of Kaya below
+      if (e.x > cx - 80 && e.x < cx + this.vw() + 80) e.draw(g, this);
     }
-    if (this.boss && !this.boss.dead && this.boss.x > cx - 200 && this.boss.x < cx + VIEW_W + 200)
+    if (this.boss && !this.boss.dead && this.boss.x > cx - 200 && this.boss.x < cx + this.vw() + 200)
       this.boss.draw(g);
 
     p.draw(g, this);
+    for (const e of this.enemies) if (e.latched) e.draw(g, this);
 
     for (const pr of this.projs) pr.draw(g);
     for (const o of this.orbs) o.draw(g);
@@ -666,7 +784,7 @@ const Game = {
     if (this.boss.active && !this.boss.dead) {
       const wx = this.boss.spec.arenaL;
       g.fillStyle = 'rgba(180,90,255,' + (0.25 + Math.sin(this.time * 6) * 0.1) + ')';
-      g.fillRect(wx - 6, cy - 40, 8, VIEW_H + 80);
+      g.fillRect(wx - 6, cy - 40, 8, this.vh() + 80);
     }
 
     // particles
@@ -688,7 +806,7 @@ const Game = {
 
     // ambient motes over everything in-world
     for (const a of this.ambient) {
-      if (a.x < cx - 20 || a.x > cx + VIEW_W + 20) continue;
+      if (a.x < cx - 20 || a.x > cx + this.vw() + 20) continue;
       const yy = cy * 0.2 + a.y;
       g.globalAlpha = a.a * (0.6 + Math.sin(this.time * a.s * 2 + a.ph) * 0.4);
       g.fillStyle = th.particle;
@@ -703,8 +821,8 @@ const Game = {
 
   drawTiles(g, cx, cy) {
     const lvl = this.level, atlas = this.tilesAtlas.cv;
-    const x0 = Math.max(0, Math.floor(cx / TILE) - 1), x1 = Math.min(lvl.W - 1, Math.ceil((cx + VIEW_W) / TILE) + 1);
-    const y0 = Math.max(0, Math.floor(cy / TILE) - 1), y1 = Math.min(lvl.H - 1, Math.ceil((cy + VIEW_H) / TILE) + 1);
+    const x0 = Math.max(0, Math.floor(cx / TILE) - 1), x1 = Math.min(lvl.W - 1, Math.ceil((cx + this.vw()) / TILE) + 1);
+    const y0 = Math.max(0, Math.floor(cy / TILE) - 1), y1 = Math.min(lvl.H - 1, Math.ceil((cy + this.vh()) / TILE) + 1);
     const th = this.level.theme;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
@@ -721,7 +839,8 @@ const Game = {
         } else if (t === T_PLAT) cell = 2;
         else if (t === T_VINE) cell = 3;
         else if (t === T_SPIKE) cell = 4;
-        g.drawImage(atlas, cell * TILE, 0, TILE, TILE, px, py, TILE, TILE);
+        // slight overdraw hides sub-pixel seams introduced by the camera zoom
+        g.drawImage(atlas, cell * TILE, 0, TILE, TILE, px, py, TILE + 0.6, TILE + 0.6);
 
         // decorative flora on exposed mossy tops
         if (t === T_SOLID && Phys.tileAt(lvl, tx, ty - 1) === T_EMPTY) {
@@ -755,8 +874,8 @@ const Game = {
 
   drawWater(g, cx, cy) {
     const lvl = this.level, th = lvl.theme;
-    const x0 = Math.max(0, Math.floor(cx / TILE) - 1), x1 = Math.min(lvl.W - 1, Math.ceil((cx + VIEW_W) / TILE) + 1);
-    const y0 = Math.max(0, Math.floor(cy / TILE) - 1), y1 = Math.min(lvl.H - 1, Math.ceil((cy + VIEW_H) / TILE) + 1);
+    const x0 = Math.max(0, Math.floor(cx / TILE) - 1), x1 = Math.min(lvl.W - 1, Math.ceil((cx + this.vw()) / TILE) + 1);
+    const y0 = Math.max(0, Math.floor(cy / TILE) - 1), y1 = Math.min(lvl.H - 1, Math.ceil((cy + this.vh()) / TILE) + 1);
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
         if (lvl.tiles[ty * lvl.W + tx] !== T_WATER) continue;
