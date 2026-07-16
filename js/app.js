@@ -893,8 +893,24 @@ function closeMenu() { $('menu').classList.add('hidden'); }
 $('miHuman').addEventListener('click', () => { newHuman(); closeMenu(); });
 $('miAnimal').addEventListener('click', () => { newAnimal(); closeMenu(); });
 $('miEmpty').addEventListener('click', () => { newEmpty(); closeMenu(); });
-$('miImport').addEventListener('click', () => { $('fileModel').click(); });
+// #miImport / #miLoad are <label>s wired to the file inputs, so the tap itself
+// opens the picker natively. If nothing happens (sandboxed embeds block file
+// pickers), tell the user instead of failing silently.
+let pickerOpened = false;
+addEventListener('blur', () => { pickerOpened = true; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pickerOpened = true; });
+function watchPicker() {
+  pickerOpened = false;
+  setTimeout(() => {
+    if (!pickerOpened) {
+      toast('No file picker? This embedded preview blocks file access — open the app in your browser instead.', 4500);
+    }
+  }, 1500);
+}
+$('miImport').addEventListener('click', watchPicker);
+$('miLoad').addEventListener('click', watchPicker);
 $('fileModel').addEventListener('change', (e) => {
+  pickerOpened = true;
   if (e.target.files[0]) { importModel(e.target.files[0]); closeMenu(); }
   e.target.value = '';
 });
@@ -967,8 +983,8 @@ $('miSave').addEventListener('click', () => {
   toast('💾 Project saved');
   closeMenu();
 });
-$('miLoad').addEventListener('click', () => $('fileProject').click());
 $('fileProject').addEventListener('change', (e) => {
+  pickerOpened = true;
   const f = e.target.files[0];
   if (!f) return;
   f.text().then(txt => {

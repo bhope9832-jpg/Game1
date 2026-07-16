@@ -97,6 +97,7 @@ input[type="range"] { flex: 1; height: 28px; accent-color: #2f6fed; }
   padding: 12px; border-radius: 12px; font-size: 14px;
 }
 .menu-item.danger { color: #ff8f8f; }
+label.menu-item { cursor: pointer; }
 .menu-slider { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #9fb3d9; margin: 8px 2px; }
 
 #boneListItems .bone-item {

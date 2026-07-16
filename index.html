@@ -95,7 +95,7 @@
     <div class="menu-section">Character</div>
     <button class="menu-item" id="miHuman">🧍 New human character</button>
     <button class="menu-item" id="miAnimal">🐕 New animal character</button>
-    <button class="menu-item" id="miImport">📦 Import model (.glb / .gltf / .obj)</button>
+    <label class="menu-item" id="miImport" for="fileModel">📦 Import model (.glb / .gltf / .obj)</label>
     <button class="menu-item" id="miEmpty">⬜ Empty scene (rig from scratch)</button>
     <div class="menu-section">Rigging</div>
     <button class="menu-item" id="miAutoRig">✨ Auto-place skeleton</button>
@@ -109,9 +109,9 @@
     <label class="menu-slider">Damping <input type="range" id="phDamp" min="0" max="0.6" step="0.02" value="0.12"></label>
     <div class="menu-section">Project</div>
     <button class="menu-item" id="miSave">💾 Save project (file)</button>
-    <button class="menu-item" id="miLoad">📂 Open project (file)</button>
+    <label class="menu-item" id="miLoad" for="fileProject">📂 Open project (file)</label>
     <button class="menu-item danger" id="miReset">🗑 Reset everything</button>
-    <input type="file" id="fileProject" accept=".json,application/json" hidden>
+    <input type="file" id="fileProject" hidden>
     <input type="file" id="fileModel" hidden>
   </div>
 
