@@ -1,0 +1,13 @@
+{
+  "name": "RigStudio 3D",
+  "short_name": "RigStudio",
+  "description": "Rig and animate 3D characters on your phone — bones, face rigs, physics, keyframes.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e1420",
+  "theme_color": "#0e1420",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

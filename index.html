@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e1420">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>RigStudio 3D</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="viewport"></div>
+
+  <!-- top bar -->
+  <header id="topbar">
+    <button id="btnMenu" class="icon-btn" title="Menu">☰</button>
+    <div id="modeTabs">
+      <button class="tab active" data-mode="build">Build</button>
+      <button class="tab" data-mode="pose">Pose</button>
+      <button class="tab" data-mode="animate">Animate</button>
+    </div>
+    <button id="btnBones" class="icon-btn" title="Bone list">🦴</button>
+    <button id="btnHelp" class="icon-btn" title="Help">?</button>
+  </header>
+
+  <!-- contextual toolbar -->
+  <div id="toolbar">
+    <div class="toolgroup" data-for="build">
+      <button class="tool active" data-tool="move">✥<span>Move</span></button>
+      <button class="tool" data-tool="add">➕<span>Add Bone</span></button>
+      <button class="tool" data-tool="delete">✂️<span>Delete</span></button>
+      <button class="tool action" id="btnBind">🧲<span>Bind Skin</span></button>
+    </div>
+    <div class="toolgroup hidden" data-for="pose">
+      <button class="tool active" data-tool="rotate">🔄<span>Rotate</span></button>
+      <button class="tool" data-tool="translate">✥<span>Move</span></button>
+      <button class="tool action" id="btnExpr">🙂<span>Face</span></button>
+      <button class="tool" id="btnPhysics">⚡<span>Physics</span></button>
+      <button class="tool action" id="btnResetPose">↺<span>Reset</span></button>
+    </div>
+    <div class="toolgroup hidden" data-for="animate">
+      <button class="tool active" data-tool="rotate">🔄<span>Rotate</span></button>
+      <button class="tool" data-tool="translate">✥<span>Move</span></button>
+      <button class="tool action" id="btnExpr2">🙂<span>Face</span></button>
+      <button class="tool" id="btnPhysics2">⚡<span>Physics</span></button>
+    </div>
+  </div>
+
+  <!-- selected bone panel -->
+  <div id="bonePanel" class="hidden">
+    <div class="panel-head">
+      <button id="boneName" class="linklike" title="Rename">bone</button>
+      <span class="spacer"></span>
+      <label class="chk"><input type="checkbox" id="boneDynamic"> ⚡ physics</label>
+      <button id="boneDelete" class="icon-btn danger" title="Delete bone">🗑</button>
+      <button id="bonePanelClose" class="icon-btn" title="Close">✕</button>
+    </div>
+    <div id="boneSliders">
+      <div class="srow"><span class="sl">X</span><input type="range" id="rotX" min="-180" max="180" step="1" value="0"><span class="sv" id="rotXv">0°</span></div>
+      <div class="srow"><span class="sl">Y</span><input type="range" id="rotY" min="-180" max="180" step="1" value="0"><span class="sv" id="rotYv">0°</span></div>
+      <div class="srow"><span class="sl">Z</span><input type="range" id="rotZ" min="-180" max="180" step="1" value="0"><span class="sv" id="rotZv">0°</span></div>
+    </div>
+  </div>
+
+  <!-- animation timeline -->
+  <div id="timeline" class="hidden">
+    <div id="transport">
+      <button id="btnPlay" class="icon-btn big">▶</button>
+      <button id="btnKey" class="icon-btn big key" title="Add keyframe for current pose">◆</button>
+      <button id="btnDelKey" class="icon-btn" title="Delete keys at playhead">◇</button>
+      <button id="btnLoop" class="icon-btn on" title="Loop">🔁</button>
+      <span id="timeLabel">0.00s</span>
+      <label class="durwrap">len <input type="number" id="durInput" min="0.5" max="60" step="0.5" value="4">s</label>
+    </div>
+    <canvas id="tlCanvas"></canvas>
+  </div>
+
+  <!-- bone list drawer -->
+  <div id="boneDrawer" class="drawer hidden">
+    <div class="drawer-head"><b>Bones</b><span class="spacer"></span><button class="icon-btn" id="boneDrawerClose">✕</button></div>
+    <div id="boneListItems"></div>
+  </div>
+
+  <!-- main menu drawer -->
+  <div id="menu" class="drawer hidden">
+    <div class="drawer-head"><b>RigStudio 3D</b><span class="spacer"></span><button class="icon-btn" id="menuClose">✕</button></div>
+    <div class="menu-section">Character</div>
+    <button class="menu-item" id="miHuman">🧍 New human character</button>
+    <button class="menu-item" id="miAnimal">🐕 New animal character</button>
+    <button class="menu-item" id="miImport">📦 Import model (.glb / .gltf)</button>
+    <button class="menu-item" id="miEmpty">⬜ Empty scene (rig from scratch)</button>
+    <div class="menu-section">Rigging</div>
+    <button class="menu-item" id="miHumanRig">🦴 Add humanoid skeleton</button>
+    <button class="menu-item" id="miAnimalRig">🦴 Add quadruped skeleton</button>
+    <button class="menu-item" id="miFaceRig">🙂 Add face rig (select head joint first)</button>
+    <button class="menu-item" id="miSnap"><span id="snapState">🧲 Auto-snap: ON</span></button>
+    <div class="menu-section">Physics</div>
+    <label class="menu-slider">Gravity <input type="range" id="phGravity" min="0" max="15" step="0.5" value="5"></label>
+    <label class="menu-slider">Stiffness <input type="range" id="phStiff" min="0.02" max="0.8" step="0.02" value="0.12"></label>
+    <label class="menu-slider">Damping <input type="range" id="phDamp" min="0" max="0.6" step="0.02" value="0.12"></label>
+    <div class="menu-section">Project</div>
+    <button class="menu-item" id="miSave">💾 Save project (file)</button>
+    <button class="menu-item" id="miLoad">📂 Open project (file)</button>
+    <button class="menu-item danger" id="miReset">🗑 Reset everything</button>
+    <input type="file" id="fileProject" accept=".json,application/json" hidden>
+    <input type="file" id="fileModel" accept=".glb,.gltf,model/gltf-binary" hidden>
+  </div>
+
+  <!-- help overlay -->
+  <div id="help" class="overlay hidden">
+    <div class="help-card">
+      <h2>🦴 RigStudio 3D</h2>
+      <p>Rig and animate 3D characters right on your phone.</p>
+      <ul>
+        <li><b>Build</b> — drag joints to shape the skeleton. <b>➕ Add Bone</b>: tap the model to drop a joint — it snaps &amp; auto-connects to the closest bone. Drag a loose joint near another to connect them.</li>
+        <li><b>🧲 Bind Skin</b> — attaches the mesh to your bones automatically.</li>
+        <li><b>Pose</b> — drag a joint to rotate its bone, or use the sliders for exact control. 🙂 opens face expressions; ⚡ toggles jiggle physics (tails, ears…).</li>
+        <li><b>Animate</b> — pose, press <b>◆</b> to keyframe, move the playhead, pose again, then ▶ to play.</li>
+        <li>1 finger orbits, 2 fingers pan/zoom. Tap 🦴 for the bone list.</li>
+        <li>☰ menu: new human/animal characters, import your own .glb model, save/load.</li>
+      </ul>
+      <button id="helpClose" class="bigbtn">Let's rig! 🚀</button>
+    </div>
+  </div>
+
+  <!-- expression sheet -->
+  <div id="exprSheet" class="sheet hidden">
+    <div class="drawer-head"><b>Expressions</b><span class="spacer"></span><button class="icon-btn" id="exprClose">✕</button></div>
+    <div id="exprButtons"></div>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
