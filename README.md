@@ -7,7 +7,9 @@ keyframe animation timeline — all in the browser, no install needed.
 ## Features
 
 - **Human & animal characters** — one tap creates a sample human or quadruped, fully rigged
-  and ready to pose. Or import your own `.glb` / `.gltf` model and rig it.
+  and ready to pose. Or import your own `.glb` / `.gltf` / `.obj` model — the app reads the
+  model's proportions, picks the right template (biped vs quadruped), and auto-places the
+  skeleton inside it, fitted to the mesh on every axis.
 - **Drag & drop bones with magnetic snapping** — new bones auto-connect to the closest joint;
   drag a loose bone near a skeleton and it snaps into the chain.
 - **Auto skinning** — one tap on 🧲 *Bind Skin* attaches the mesh to your skeleton

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../lib/OrbitControls.js';
 import { GLTFLoader } from '../lib/GLTFLoader.js';
+import { OBJLoader } from '../lib/OBJLoader.js';
 import { Rig } from './rigcore.js';
 import {
   buildHumanMesh, buildAnimalMesh,
@@ -74,14 +75,28 @@ addEventListener('resize', resize);
 const overlayGroup = new THREE.Group();
 scene.add(overlayGroup);
 const sphereGeo = new THREE.SphereGeometry(1, 12, 8);
-const linkGeo = new THREE.CylinderGeometry(1, 1, 1, 6).translate(0, 0.5, 0);
+// Blender-style octahedral bone: base at origin, tip at (0,1,0), widest at 22%
+const linkGeo = (() => {
+  const g = new THREE.BufferGeometry();
+  const w = 1, k = 0.22;
+  g.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0,   0, 1, 0,
+    w, k, 0,   0, k, w,   -w, k, 0,   0, k, -w,
+  ], 3));
+  g.setIndex([
+    0, 3, 2, 0, 4, 3, 0, 5, 4, 0, 2, 5,
+    1, 2, 3, 1, 3, 4, 1, 4, 5, 1, 5, 2,
+  ]);
+  g.computeVertexNormals();
+  return g;
+})();
 const MAT = {
   normal: new THREE.MeshBasicMaterial({ color: 0x4da3ff, depthTest: false, transparent: true, opacity: 0.95 }),
   face: new THREE.MeshBasicMaterial({ color: 0xff8fc0, depthTest: false, transparent: true, opacity: 0.95 }),
   dynamic: new THREE.MeshBasicMaterial({ color: 0x53e08d, depthTest: false, transparent: true, opacity: 0.95 }),
   selected: new THREE.MeshBasicMaterial({ color: 0xffd54a, depthTest: false, transparent: true, opacity: 1 }),
   snap: new THREE.MeshBasicMaterial({ color: 0x7cfc00, depthTest: false, transparent: true, opacity: 1 }),
-  link: new THREE.MeshBasicMaterial({ color: 0x8fb7e8, depthTest: false, transparent: true, opacity: 0.5 }),
+  link: new THREE.MeshBasicMaterial({ color: 0x8fb7e8, depthTest: false, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
 };
 let jointMeshes = [];   // sphere Mesh per joint (same index as rig.joints)
 let linkMeshes = [];
@@ -115,7 +130,7 @@ function updateOverlay() {
     rig.worldPos(j, _wp);
     m.position.copy(_wp);
     const dist = camera.position.distanceTo(_wp);
-    let r = THREE.MathUtils.clamp(dist * 0.019, 0.008, 0.2);
+    let r = THREE.MathUtils.clamp(dist * 0.014, 0.006, 0.15);
     if (j.face) r *= 0.62;
     m.scale.setScalar(r);
     m.material =
@@ -124,12 +139,12 @@ function updateOverlay() {
       j.dynamic ? MAT.dynamic :
       j.face ? MAT.face : MAT.normal;
   }
-  const lr = Math.max(0.004, 0.010 * sceneScale);
   for (const m of linkMeshes) {
     const j = m.userData.joint;
     rig.worldPos(j, _wp);
     rig.worldPos(j.parent, _wp2);
     const len = _wp.distanceTo(_wp2);
+    const lr = THREE.MathUtils.clamp(len * 0.16, 0.005, 0.06 * sceneScale);
     m.position.copy(_wp2);
     m.scale.set(lr, Math.max(len, 1e-5), lr);
     m.quaternion.setFromUnitVectors(_Y, _wp.sub(_wp2).normalize());
@@ -173,10 +188,10 @@ function clearAll() {
   markDirtySave();
 }
 
-function loadTemplate(spec, scale = 1, offset = new THREE.Vector3(), anchor = null) {
+function loadTemplate(spec, mapFn = (v) => v, anchor = null) {
   const byName = new Map();
   for (const [name, parentName, pos, opts] of spec) {
-    const p = new THREE.Vector3().fromArray(pos).multiplyScalar(scale).add(offset);
+    const p = mapFn(new THREE.Vector3().fromArray(pos));
     let parent = null;
     if (parentName === 'HEAD') parent = anchor;
     else if (parentName) parent = byName.get(parentName) || null;
@@ -220,57 +235,110 @@ function newEmpty() {
   toast('Tap ➕ then tap the scene to place bones');
 }
 
-function importGLB(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    new GLTFLoader().parse(reader.result, '', (gltf) => {
-      clearAll();
-      charKind = 'custom';
-      const root = gltf.scene;
-      root.updateMatrixWorld(true);
-      const found = [];
-      root.traverse((o) => { if (o.isMesh) found.push(o); });
-      if (found.length === 0) { toast('No meshes found in that file'); return; }
-      const box = new THREE.Box3().setFromObject(root);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      const s = 1.7 / Math.max(0.0001, size.y);
-      const norm = new THREE.Matrix4().makeScale(s, s, s)
-        .multiply(new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z));
-      for (const src of found) {
-        const m = new THREE.Mesh(src.geometry, src.material);
-        m.applyMatrix4(new THREE.Matrix4().multiplyMatrices(norm, src.matrixWorld));
-        charGroup.add(m);
-        meshes.push(m);
-      }
-      computeSceneScale();
-      setMode('build');
-      toast('📦 Model imported — add a skeleton from the ☰ menu, or build bones');
-      markDirtySave();
-    }, (err) => { console.error(err); toast('Could not read that model 😕'); });
-  };
-  reader.readAsArrayBuffer(file);
+function importModel(file) {
+  const name = file.name.toLowerCase();
+  const fail = (err) => { console.error(err); toast('Could not read that model 😕 (.glb, .gltf and .obj are supported)', 3200); };
+  if (name.endsWith('.obj')) {
+    file.text().then((txt) => {
+      try { finishImport(new OBJLoader().parse(txt)); } catch (err) { fail(err); }
+    }).catch(fail);
+  } else if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+    const reader = new FileReader();
+    reader.onload = () => new GLTFLoader().parse(reader.result, '', (g) => finishImport(g.scene), fail);
+    reader.onerror = fail;
+    reader.readAsArrayBuffer(file);
+  } else {
+    toast('That file type isn’t supported — use .glb, .gltf or .obj', 3200);
+  }
 }
 
-function addSkeletonTemplate(kind) {
-  if (rig.joints.length > 0 && !confirm('Replace the current skeleton?')) return;
+function finishImport(root) {
+  root.updateMatrixWorld(true);
+  const found = [];
+  root.traverse((o) => { if (o.isMesh) found.push(o); });
+  if (found.length === 0) { toast('No meshes found in that file'); return; }
+  clearAll();
+  charKind = 'custom';
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const s = 1.7 / Math.max(0.0001, size.y);
+  const norm = new THREE.Matrix4().makeScale(s, s, s)
+    .multiply(new THREE.Matrix4().makeTranslation(-center.x, -box.min.y, -center.z));
+  for (const src of found) {
+    let mat = src.material;
+    // OBJ files without materials arrive plain white — give them a studio finish
+    if (mat && mat.isMeshPhongMaterial && !mat.map) {
+      mat = new THREE.MeshStandardMaterial({ color: 0x9fb8d4, roughness: 0.8, metalness: 0.05 });
+    }
+    const m = new THREE.Mesh(src.geometry, mat);
+    m.applyMatrix4(new THREE.Matrix4().multiplyMatrices(norm, src.matrixWorld));
+    charGroup.add(m);
+    meshes.push(m);
+  }
+  computeSceneScale();
+  autoPlaceSkeleton();
+  setMode('build');
+  markDirtySave();
+}
+
+// Fit a skeleton template onto the current meshes: per-axis scaling to the
+// model's bounding box, and for animals, rotation to match the body's long axis.
+function fitSkeleton(kind) {
   anim.tracks.clear();
   rig.clear(scene);
-  let scale = 1, offset = new THREE.Vector3();
+  const spec = kind === 'human' ? HUMAN_JOINTS : ANIMAL_JOINTS;
+  let mapFn = (v) => v;
   if (meshes.length) {
     const box = new THREE.Box3();
     for (const m of meshes) box.expandByObject(m);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
-    const tplH = kind === 'human' ? 1.75 : 1.01;
-    scale = size.y / tplH;
-    offset.set(center.x, box.min.y, center.z);
+    const tb = new THREE.Box3();
+    for (const [, , pos] of spec) tb.expandByPoint(new THREE.Vector3().fromArray(pos));
+    const ts = tb.getSize(new THREE.Vector3());
+    const tc = tb.getCenter(new THREE.Vector3());
+    const sy = size.y / Math.max(ts.y, 1e-3);
+    const cl = (v) => THREE.MathUtils.clamp(v, 0.5 * sy, 1.6 * sy);
+    const swap = kind === 'animal' && size.x > size.z;   // body runs along X
+    if (swap) {
+      const sx = cl(size.x / Math.max(ts.z, 1e-3));
+      const sz = cl(size.z / Math.max(ts.x, 1e-3));
+      mapFn = (v) => new THREE.Vector3(
+        (v.z - tc.z) * sx + center.x,
+        (v.y - tb.min.y) * sy + box.min.y,
+        (v.x - tc.x) * sz + center.z);
+    } else {
+      const sx = cl(size.x / Math.max(ts.x, 1e-3));
+      const sz = cl(size.z / Math.max(ts.z, 1e-3));
+      mapFn = (v) => new THREE.Vector3(
+        (v.x - tc.x) * sx + center.x,
+        (v.y - tb.min.y) * sy + box.min.y,
+        (v.z - tc.z) * sz + center.z);
+    }
   }
-  loadTemplate(kind === 'human' ? HUMAN_JOINTS : ANIMAL_JOINTS, scale, offset);
+  loadTemplate(spec, mapFn);
   if (kind === 'human') addFaceRig(true);
+  markDirtySave();
+}
+
+// Guess the right template from the model's proportions: taller than it is
+// long reads as a biped, longer than it is tall reads as a quadruped.
+function autoPlaceSkeleton() {
+  if (meshes.length === 0) { toast('Import or create a character first'); return; }
+  const box = new THREE.Box3();
+  for (const m of meshes) box.expandByObject(m);
+  const size = box.getSize(new THREE.Vector3());
+  const kind = Math.max(size.x, size.z) > size.y * 0.95 ? 'animal' : 'human';
+  fitSkeleton(kind);
+  toast(`✨ ${kind === 'human' ? 'Humanoid' : 'Quadruped'} skeleton auto-placed — fine-tune joints, then Bind Skin`, 3200);
+}
+
+function addSkeletonTemplate(kind) {
+  if (rig.joints.length > 0 && !confirm('Replace the current skeleton?')) return;
+  fitSkeleton(kind);
   setMode('build');
   toast('Skeleton added — drag joints to fit your model');
-  markDirtySave();
 }
 
 function addFaceRig(silent = false) {
@@ -281,7 +349,8 @@ function addFaceRig(silent = false) {
     return;
   }
   const s = THREE.MathUtils.clamp(anchor.pos.y * 0.64, 0.3, 2.5);
-  loadTemplate(faceJointSpec(s), 1, anchor.pos.clone(), anchor);
+  const anchorPos = anchor.pos.clone();
+  loadTemplate(faceJointSpec(s), (v) => v.add(anchorPos), anchor);
   if (!silent) toast('🙂 Face rig added — jaw, eyes, brows, mouth, cheeks');
   markDirtySave();
 }
@@ -826,8 +895,13 @@ $('miAnimal').addEventListener('click', () => { newAnimal(); closeMenu(); });
 $('miEmpty').addEventListener('click', () => { newEmpty(); closeMenu(); });
 $('miImport').addEventListener('click', () => { $('fileModel').click(); });
 $('fileModel').addEventListener('change', (e) => {
-  if (e.target.files[0]) { importGLB(e.target.files[0]); closeMenu(); }
+  if (e.target.files[0]) { importModel(e.target.files[0]); closeMenu(); }
   e.target.value = '';
+});
+$('miAutoRig').addEventListener('click', () => {
+  if (rig.joints.length > 0 && !confirm('Replace the current skeleton?')) return;
+  autoPlaceSkeleton();
+  closeMenu();
 });
 $('miHumanRig').addEventListener('click', () => { addSkeletonTemplate('human'); closeMenu(); });
 $('miAnimalRig').addEventListener('click', () => { addSkeletonTemplate('animal'); closeMenu(); });
