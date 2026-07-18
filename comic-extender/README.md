@@ -57,9 +57,12 @@ requires one on every request. What *is* free:
 3. Paste it into the app's ⚙️ *Setup* section (top of the page), once.
 
 The key is stored **only in your browser's localStorage** and sent **only to
-Google's API endpoint** — this app has no server and never sees it. Free-tier
-quotas are limited (Nano Banana Pro is stingier than Nano Banana); if you hit a
-rate limit, the app tells you and suggests switching models in step 2.
+Google's API endpoint** — this app has no server and never sees it. Model quota reality check: **Nano Banana** (`gemini-2.5-flash-image`) has a real
+free quota and is the app's default. **Nano Banana Pro**
+(`gemini-3-pro-image-preview`) has no free API quota — Google returns a 429
+"rate limit" instantly even with zero usage unless your key belongs to a billed
+Google Cloud project. If you pick Pro without billing, the app detects that 429
+and automatically retries with Nano Banana.
 
 > ⚠️ Because the key lives in the browser, this setup is for **personal use**.
 > If you publish the app for other people, each visitor should paste their own

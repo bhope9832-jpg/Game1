@@ -2,7 +2,7 @@
    Strategy: cache-first for the app shell (so it opens offline), with a
    background refresh so updates arrive on the next visit. API calls to
    Google are never cached — generation always goes to the network. */
-const CACHE = "cpx-shell-v1";
+const CACHE = "cpx-shell-v2";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {

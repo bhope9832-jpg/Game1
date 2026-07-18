@@ -285,8 +285,8 @@ ol.howto li { margin-bottom: 5px; }
     <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; align-items:center">
       <label class="hint" for="modelSel">Model:</label>
       <select id="modelSel" style="width:auto; flex:1; min-width:200px">
-        <option value="gemini-3-pro-image-preview">Nano Banana Pro — best quality</option>
-        <option value="gemini-2.5-flash-image">Nano Banana — faster, bigger free quota</option>
+        <option value="gemini-2.5-flash-image">Nano Banana — free tier (recommended)</option>
+        <option value="gemini-3-pro-image-preview">Nano Banana Pro — best quality (usually needs paid billing)</option>
       </select>
     </div>
   </section>
@@ -338,6 +338,7 @@ ol.howto li { margin-bottom: 5px; }
 const API_BASE   = "https://generativelanguage.googleapis.com/v1beta/models/";
 const LS_KEY     = "cpx_api_key";      // localStorage: API key
 const LS_HISTORY = "cpx_history";      // localStorage: gallery entries
+const FALLBACK_MODEL   = "gemini-2.5-flash-image"; // Nano Banana: the model with a real free quota
 const MAX_UPLOAD_EDGE  = 1568;         // uploads are downscaled to keep requests small
 const HISTORY_THUMB_W  = 700;          // history stores compressed copies (quota-safe)
 
@@ -503,7 +504,20 @@ async function generate() {
   };
 
   try {
-    const img = await callGemini(model, body);
+    let img;
+    try {
+      img = await callGemini(model, body);
+    } catch (err) {
+      // Nano Banana Pro has no free API quota — Google answers 429 even with
+      // zero usage. Fall back to Nano Banana automatically instead of failing.
+      if (err.status === 429 && model !== FALLBACK_MODEL) {
+        $("modelSel").value = FALLBACK_MODEL;
+        setStatus("info", "Nano Banana Pro isn't available on the free tier — retrying with Nano Banana…");
+        img = await callGemini(FALLBACK_MODEL, body);
+      } else {
+        throw err;
+      }
+    }
     lastResult = img;
     showResult(img);
     saveToHistory(img, $("storyPrompt").value);
@@ -552,7 +566,7 @@ function friendlyError(err) {
   const m = String(err.message || err);
   if (err.status === 400 && /API key/i.test(m)) return "Your API key looks invalid — re-paste it in ⚙️ Setup.";
   if (err.status === 401 || err.status === 403) return "Key not accepted (" + err.status + "). Create a fresh free key at aistudio.google.com/apikey.";
-  if (err.status === 429) return "Free-tier rate limit reached. Wait a minute and try again, or switch to the “Nano Banana” model which has a bigger free quota.";
+  if (err.status === 429) return "Free-tier limit reached on this model. Nano Banana allows a limited number of images per minute/day — wait a minute and try again. (Nano Banana Pro has no free quota at all; it needs a billed Google Cloud account.)";
   if (err.status === 404) return "This model isn't available for your key yet — switch models in step 2 and retry.";
   if (/Failed to fetch|NetworkError/i.test(m)) return "Network error — check your connection (generation needs internet; everything else works offline).";
   return "Generation failed: " + m;
