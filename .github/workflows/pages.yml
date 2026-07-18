@@ -1,0 +1,32 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Publish the site as a classic gh-pages branch: creating that branch
+      # activates Pages automatically on public repos, with no settings to
+      # flip (the newer "GitHub Actions" source needs Pages pre-enabled,
+      # which the workflow token isn't allowed to do).
+      - name: Publish to gh-pages branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan gh-pages
+          touch .nojekyll
+          git add -A
+          git commit -m "Deploy site from ${GITHUB_SHA}"
+          git push -f origin gh-pages

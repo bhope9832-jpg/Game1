@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1017">
+<title>Comic Page Extender — AI next-page generator</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<!--
+  ============================================================================
+  COMIC PAGE EXTENDER
+  ----------------------------------------------------------------------------
+  A single-file web app that lets you upload comic pages / panels and asks
+  Google's "Nano Banana" image models (Nano Banana Pro = gemini-3-pro-image-
+  preview, Nano Banana = gemini-2.5-flash-image) to draw the NEXT page in the
+  exact same art style, as a classic 6-panel comic page.
+
+  - 100% client-side: no server, no build step. Open the file (or serve the
+    folder with any static server) and it works.
+  - Uses the FREE tier of the Gemini API. The user pastes their own free
+    AI Studio key once; it is stored ONLY in this browser's localStorage and
+    sent ONLY to Google's API endpoint.
+  - Generated pages are kept in a localStorage gallery (compressed copies).
+
+  The file is organized in three blocks: CSS, then HTML, then JS. Every JS
+  section has a banner comment so it is easy to find and modify.
+  ============================================================================
+-->
+<style>
+/* ==========================================================================
+   1. THEME & RESET — dark UI tuned for comic artwork
+   ========================================================================== */
+:root {
+  --bg:        #0d1017;   /* page background */
+  --panel:     #161b26;   /* cards / sections */
+  --panel-2:   #1d2432;   /* nested surfaces (dropzone, inputs) */
+  --border:    #2a3347;
+  --text:      #e8ecf4;
+  --muted:     #93a0b4;
+  --accent:    #ffcc33;   /* comic-yellow accent */
+  --accent-2:  #ff5470;   /* pink/red secondary accent */
+  --ok:        #3ddc84;
+  --err:       #ff6b6b;
+  --radius:    14px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background:
+    radial-gradient(1200px 500px at 80% -10%, #1a2233 0%, transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  min-height: 100dvh;
+}
+img { max-width: 100%; display: block; }
+button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+textarea, input, select { font: inherit; color: var(--text); }
+a { color: var(--accent); }
+
+/* ==========================================================================
+   2. LAYOUT
+   ========================================================================== */
+.wrap { max-width: 1100px; margin: 0 auto; padding: 16px 16px 60px; }
+
+header.app {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 18px 0 10px;
+}
+.logo {
+  width: 46px; height: 46px; flex: 0 0 auto; border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  display: grid; place-items: center; font-size: 26px;
+  box-shadow: 0 4px 18px rgba(255, 84, 112, .35);
+}
+header.app h1 { font-size: 1.35rem; letter-spacing: .3px; }
+header.app p  { color: var(--muted); font-size: .9rem; width: 100%; }
+.spacer { flex: 1; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-top: 16px;
+}
+.card h2 {
+  font-size: 1.02rem; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.step-num {
+  background: var(--accent); color: #14100a; font-weight: 700;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: inline-grid; place-items: center; font-size: .85rem; flex: 0 0 auto;
+}
+.hint { color: var(--muted); font-size: .875rem; }
+
+/* ==========================================================================
+   3. CONTROLS
+   ========================================================================== */
+.btn {
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2); color: var(--text);
+  padding: 11px 18px; min-height: 44px;           /* comfortable touch target */
+  transition: filter .15s, transform .05s;
+}
+.btn:hover { filter: brightness(1.2); }
+.btn:active { transform: scale(.98); }
+.btn.primary {
+  background: linear-gradient(135deg, var(--accent), #ffb020);
+  border: none; color: #14100a; font-weight: 700; font-size: 1.05rem;
+  width: 100%; padding: 15px; box-shadow: 0 6px 22px rgba(255, 204, 51, .25);
+}
+.btn.primary:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
+.btn.small { padding: 7px 12px; min-height: 36px; font-size: .85rem; }
+.btn.danger { color: var(--err); }
+
+textarea, input[type=password], input[type=text], select {
+  width: 100%; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; outline: none;
+}
+textarea:focus, input:focus { border-color: var(--accent); }
+textarea { resize: vertical; min-height: 84px; }
+
+/* ==========================================================================
+   4. UPLOAD DROPZONE + THUMBNAILS
+   ========================================================================== */
+#dropzone {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 28px 16px; text-align: center; cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+#dropzone.dragover { border-color: var(--accent); background: #232c3e; }
+#dropzone .big { font-size: 2rem; }
+#thumbs {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;
+}
+.thumb {
+  position: relative; width: 96px; height: 128px;
+  border-radius: 8px; overflow: hidden; border: 1px solid var(--border);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb .rm {
+  position: absolute; top: 4px; right: 4px;
+  width: 26px; height: 26px; border-radius: 50%; border: none;
+  background: rgba(0,0,0,.65); color: #fff; font-size: 14px; line-height: 1;
+}
+
+/* ==========================================================================
+   5. RESULTS — reference & generated page side-by-side
+   ========================================================================== */
+#resultArea { display: none; }
+.compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px;
+}
+.compare figure {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px; min-width: 0;
+}
+.compare figcaption {
+  font-size: .82rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .8px; margin-bottom: 8px; text-align: center;
+}
+.compare img { border-radius: 6px; margin: 0 auto; max-height: 75vh; object-fit: contain; }
+#refStack { display: flex; flex-direction: column; gap: 8px; }
+.result-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+/* ==========================================================================
+   6. STATUS / LOADER
+   ========================================================================== */
+#status { display: none; margin-top: 14px; padding: 13px 15px;
+  border-radius: 10px; font-size: .92rem; }
+#status.info { display: block; background: #1a2740; border: 1px solid #2c4a7c; }
+#status.error { display: block; background: #3a1b22; border: 1px solid #7c2c3a; color: #ffc9c9; }
+#status.ok { display: block; background: #14311f; border: 1px solid #2c7c4a; color: #c9ffdd; }
+.spinner {
+  display: inline-block; width: 15px; height: 15px; margin-right: 8px;
+  border: 2px solid var(--accent); border-top-color: transparent;
+  border-radius: 50%; vertical-align: -2px;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ==========================================================================
+   7. HISTORY GALLERY
+   ========================================================================== */
+#gallery {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px; margin-top: 12px;
+}
+.g-item {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden; cursor: pointer;
+  transition: transform .12s;
+}
+.g-item:hover { transform: translateY(-2px); }
+.g-item img { width: 100%; aspect-ratio: 2/3; object-fit: cover; }
+.g-item .cap { padding: 7px 9px; font-size: .74rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ==========================================================================
+   8. SETTINGS (API key) + HELP
+   ========================================================================== */
+details.settings { margin-top: 16px; }
+details.settings summary {
+  cursor: pointer; list-style: none; color: var(--muted); font-size: .9rem;
+  padding: 10px 0; user-select: none;
+}
+details.settings summary::before { content: "⚙️ "; }
+.key-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.key-row input { flex: 1; min-width: 220px; }
+#keyState { font-size: .85rem; margin-top: 8px; }
+.ok-dot  { color: var(--ok); }
+.err-dot { color: var(--err); }
+ol.howto { margin: 10px 0 4px 20px; font-size: .9rem; color: var(--muted); }
+ol.howto li { margin-bottom: 5px; }
+
+/* ==========================================================================
+   9. MOBILE
+   ========================================================================== */
+@media (max-width: 720px) {
+  .compare { grid-template-columns: 1fr; }
+  .card { padding: 14px; }
+  header.app h1 { font-size: 1.15rem; }
+  .thumb { width: 80px; height: 106px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ======================= HEADER ======================= -->
+  <header class="app">
+    <div class="logo">💥</div>
+    <div>
+      <h1>Comic Page Extender</h1>
+    </div>
+    <p>Upload comic panels or a full page — the AI draws the <b>next page</b>
+       (classic 6-panel layout) in the exact same art style, colors and tone.</p>
+  </header>
+
+  <!-- ======================= SETTINGS: FREE API KEY ======================= -->
+  <details class="settings" id="settingsBox">
+    <summary>Setup — free AI access (one-time, ~1 minute)</summary>
+    <div class="card" style="margin-top:8px">
+      <p class="hint">
+        This app generates images with Google's <b>Nano&nbsp;Banana</b> models via the
+        Gemini API. <b>Heads-up:</b> Google currently gives API keys <i>zero</i> free
+        image-generation quota — the key's Google Cloud project must have billing
+        attached (new accounts include <b>$300 of free trial credit</b>; one comic page
+        costs a few cents, so the credit is effectively thousands of pages).
+      </p>
+      <ol class="howto">
+        <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and click <b>“Create API key”</b>.</li>
+        <li>Attach billing to the key's project (AI Studio prompts you with a <b>“Set up billing”</b> link; new accounts get the $300 free trial credit).</li>
+        <li>Paste the key below. It is saved <b>only in this browser</b> (localStorage) and sent <b>only to Google</b>.</li>
+      </ol>
+      <div class="key-row">
+        <input type="password" id="apiKey" placeholder="Paste your free API key (AIza…)" autocomplete="off">
+        <button class="btn" id="saveKey">Save key</button>
+        <button class="btn danger" id="clearKey">Remove</button>
+      </div>
+      <div id="keyState"></div>
+    </div>
+  </details>
+
+  <!-- ======================= STEP 1: UPLOAD ======================= -->
+  <section class="card">
+    <h2><span class="step-num">1</span> Upload your comic page(s) or panel(s)</h2>
+    <div id="dropzone" role="button" tabindex="0" aria-label="Upload images">
+      <div class="big">📄</div>
+      <b>Tap to choose images</b> — or drag &amp; drop / paste them here<br>
+      <span class="hint">Any image works: full pages, single panels, sketches, illustrations. PNG / JPG / WebP…</span>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" multiple hidden>
+    <div id="thumbs"></div>
+  </section>
+
+  <!-- ======================= STEP 2: DESCRIBE ======================= -->
+  <section class="card">
+    <h2><span class="step-num">2</span> What happens on the next page? <span class="hint">(optional)</span></h2>
+    <textarea id="storyPrompt"
+      placeholder="Describe the next scene… e.g. “The hero chases the thief across the rooftops, slips on a skylight, and comes face to face with the masked boss.” Leave empty to let the AI continue the story on its own."></textarea>
+    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; align-items:center">
+      <label class="hint" for="engineSel">Engine:</label>
+      <select id="engineSel" style="width:auto; flex:1; min-width:200px">
+        <option value="pollinations">Free — no key needed (weaker style match)</option>
+        <option value="google">Google Nano Banana — best quality (key + billing)</option>
+      </select>
+    </div>
+    <div id="modelRow" style="display:none; gap:10px; margin-top:10px; flex-wrap:wrap; align-items:center">
+      <label class="hint" for="modelSel">Model:</label>
+      <select id="modelSel" style="width:auto; flex:1; min-width:200px">
+        <option value="gemini-3.1-flash-image">Nano Banana 3.1 — newest, fast (recommended)</option>
+        <option value="gemini-3-pro-image">Nano Banana Pro — best quality</option>
+        <option value="gemini-2.5-flash-image">Nano Banana 2.5 — original</option>
+      </select>
+    </div>
+    <div id="styleRow" style="margin-top:10px">
+      <textarea id="styleDesc" style="min-height:64px"
+        placeholder="Optional style notes (e.g. “Cali has no tail and no animal ears”) — added on top of what the engine takes from your reference image. Leave empty if you have nothing to correct."></textarea>
+    </div>
+  </section>
+
+  <!-- ======================= STEP 3: GENERATE ======================= -->
+  <section class="card">
+    <h2><span class="step-num">3</span> Generate the next page</h2>
+    <button class="btn primary" id="goBtn">💥 Extend Comic — draw the next page</button>
+    <div id="status"></div>
+  </section>
+
+  <!-- ======================= RESULT ======================= -->
+  <section class="card" id="resultArea">
+    <h2>🎉 Your new page</h2>
+    <div class="compare">
+      <figure>
+        <figcaption>Your reference</figcaption>
+        <div id="refStack"></div>
+      </figure>
+      <figure>
+        <figcaption>Generated next page</figcaption>
+        <img id="resultImg" alt="Generated comic page">
+      </figure>
+    </div>
+    <div class="result-actions">
+      <button class="btn" id="downloadBtn">⬇️ Download PNG</button>
+      <button class="btn" id="retryBtn">🔁 Regenerate</button>
+      <button class="btn" id="chainBtn">➡️ Use as reference for the page after</button>
+    </div>
+  </section>
+
+  <!-- Version badge: bump APP_VERSION in the JS whenever the app changes, so
+       users (and support) can instantly see whether they have the latest. -->
+  <p class="hint" id="verBadge" style="text-align:center; margin-top:18px"></p>
+
+  <!-- ======================= HISTORY ======================= -->
+  <section class="card">
+    <h2>🗂️ History <span class="hint">(saved in this browser)</span>
+      <span class="spacer"></span>
+      <button class="btn small danger" id="clearHist">Clear all</button>
+    </h2>
+    <p class="hint" id="histEmpty">Nothing yet — your generated pages will appear here, even after you close the tab.</p>
+    <div id="gallery"></div>
+  </section>
+
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   STATE & CONSTANTS
+   ========================================================================== */
+const APP_VERSION = "v8 — image-to-image with model discovery + honest failure reporting";
+const API_BASE   = "https://generativelanguage.googleapis.com/v1beta/models/";
+const LS_KEY     = "cpx_api_key";      // localStorage: API key
+const LS_HISTORY = "cpx_history";      // localStorage: gallery entries
+const FALLBACK_MODEL   = "gemini-3.1-flash-image"; // cheaper/faster model to retry with when the picked one 429s
+const MAX_UPLOAD_EDGE  = 1568;         // uploads are downscaled to keep requests small
+const HISTORY_THUMB_W  = 700;          // history stores compressed copies (quota-safe)
+
+let refs = [];            // uploaded refs: { dataUrl, mimeType, name }
+let lastResult = null;    // last generated image dataURL (full quality)
+let busy = false;
+
+const $ = id => document.getElementById(id);
+
+/* ==========================================================================
+   PROMPT — this is where the "match the style exactly" magic lives.
+   Tweak freely.
+   ========================================================================== */
+function buildPrompt(userStory) {
+  let p =
+    "You are a master comic book artist continuing an existing comic. " +
+    "The attached image(s) are the reference: page(s)/panel(s) from the comic so far. " +
+    "Draw the NEXT page of this exact comic as ONE single full comic page image with a " +
+    "classic 6-panel layout (2 columns x 3 rows grid with clean white gutters and panel borders). " +
+    "It is CRITICAL that you match the reference precisely: the same art style, line weight, " +
+    "inking, coloring palette, shading technique, character designs, faces, costumes, " +
+    "lettering/speech-bubble style, and overall tone. The new page must look like it was drawn " +
+    "by the same artist for the same book, indistinguishable in style. " +
+    "Continue the story naturally from where the reference leaves off, with a clear panel-to-panel " +
+    "flow and speech bubbles where appropriate.";
+  if (userStory && userStory.trim()) {
+    p += " Here is what should happen on this next page: " + userStory.trim();
+  } else {
+    p += " Invent a compelling, natural continuation of the scene.";
+  }
+  return p;
+}
+
+/* ==========================================================================
+   API KEY MANAGEMENT (stored only in localStorage)
+   ========================================================================== */
+function getKey() { return localStorage.getItem(LS_KEY) || ""; }
+
+function renderKeyState() {
+  const el = $("keyState");
+  if (getKey()) {
+    el.innerHTML = '<span class="ok-dot">●</span> Key saved — the Google engine is ready.';
+    $("settingsBox").open = false;
+  } else {
+    el.innerHTML = '<span class="err-dot">●</span> No key — only needed for the Google engine; the Free engine works without one.';
+    // Only nag about the key when the Google engine is actually selected.
+    $("settingsBox").open = $("engineSel").value === "google";
+  }
+}
+
+/* ==========================================================================
+   ENGINE SWITCHING — Google (key + billing, uses reference images) vs.
+   Pollinations (100% free, keyless, text-only prompt)
+   ========================================================================== */
+const LS_ENGINE = "cpx_engine";
+
+function applyEngineUI() {
+  const g = $("engineSel").value === "google";
+  $("modelRow").style.display = g ? "flex" : "none";
+  $("styleRow").style.display = g ? "none" : "block";
+  localStorage.setItem(LS_ENGINE, $("engineSel").value);
+  renderKeyState();
+}
+$("engineSel").onchange = applyEngineUI;
+$("saveKey").onclick = () => {
+  const v = $("apiKey").value.trim();
+  if (!v) return setStatus("error", "Paste a key first.");
+  localStorage.setItem(LS_KEY, v);
+  $("apiKey").value = "";
+  renderKeyState();
+  setStatus("ok", "Key saved locally. You're all set!");
+};
+$("clearKey").onclick = () => { localStorage.removeItem(LS_KEY); renderKeyState(); };
+
+/* ==========================================================================
+   IMAGE UPLOAD — click / drag&drop / paste, with client-side downscaling
+   ========================================================================== */
+const dz = $("dropzone");
+dz.onclick = () => $("fileInput").click();
+dz.onkeydown = e => { if (e.key === "Enter" || e.key === " ") $("fileInput").click(); };
+$("fileInput").onchange = e => addFiles(e.target.files);
+
+["dragenter", "dragover"].forEach(ev =>
+  dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("dragover"); }));
+["dragleave", "drop"].forEach(ev =>
+  dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("dragover"); }));
+dz.addEventListener("drop", e => addFiles(e.dataTransfer.files));
+
+// Paste an image anywhere on the page
+document.addEventListener("paste", e => {
+  const items = [...(e.clipboardData?.items || [])]
+    .filter(i => i.type.startsWith("image/"))
+    .map(i => i.getAsFile());
+  if (items.length) addFiles(items);
+});
+
+async function addFiles(fileList) {
+  for (const f of fileList) {
+    if (!f || !f.type.startsWith("image/")) continue;
+    try {
+      const dataUrl = await downscale(f, MAX_UPLOAD_EDGE);
+      refs.push({ dataUrl, mimeType: "image/jpeg", name: f.name || "image" });
+    } catch (err) {
+      console.error("Could not read image:", err);
+    }
+  }
+  $("fileInput").value = "";
+  renderThumbs();
+}
+
+/** Read a File and downscale it so its longest edge <= maxEdge. Returns a JPEG dataURL. */
+function downscale(file, maxEdge) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width  = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/jpeg", 0.92));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad image")); };
+    img.src = url;
+  });
+}
+
+function renderThumbs() {
+  const box = $("thumbs");
+  box.innerHTML = "";
+  refs.forEach((r, i) => {
+    const d = document.createElement("div");
+    d.className = "thumb";
+    d.innerHTML = `<img src="${r.dataUrl}" alt=""><button class="rm" aria-label="Remove">✕</button>`;
+    d.querySelector(".rm").onclick = () => { refs.splice(i, 1); renderThumbs(); };
+    box.appendChild(d);
+  });
+}
+
+/* ==========================================================================
+   STATUS BAR
+   ========================================================================== */
+function setStatus(kind, html) {
+  const s = $("status");
+  s.className = kind || "";
+  s.innerHTML = kind === "info" ? '<span class="spinner"></span>' + html : html;
+  if (!kind) s.style.display = "none";
+}
+
+/* ==========================================================================
+   GENERATION — calls the Gemini API generateContent endpoint directly
+   ========================================================================== */
+$("goBtn").onclick = generate;
+$("retryBtn").onclick = generate;
+
+async function generate() {
+  if (busy) return;
+  const engine = $("engineSel").value;
+  if (!refs.length) return setStatus("error", "Upload at least one reference image first (step 1).");
+  if (engine === "google" && !getKey())
+    return setStatus("error", "The Google engine needs an API key — open the ⚙️ Setup section, or switch the engine to “Free”.");
+
+  busy = true;
+  $("goBtn").disabled = true;
+
+  try {
+    let img;
+    if (engine === "google") {
+      setStatus("info", "Drawing your next page… this usually takes 10–40 seconds.");
+      img = await generateGoogle();
+    } else {
+      setStatus("info", "Drawing your next page with the free engine… this can take 30–90 seconds.");
+      img = await callPollinations();
+    }
+    lastResult = img;
+    showResult(img);
+    saveToHistory(img, $("storyPrompt").value);
+    setStatus("ok", "Done! Scroll down to see and download your page." +
+                    (freeEngineNote ? "<br><br>" + freeEngineNote : ""));
+  } catch (err) {
+    setStatus("error", friendlyError(err));
+  } finally {
+    busy = false;
+    $("goBtn").disabled = false;
+  }
+}
+
+/** Google path: reference images attached, exact style matching. */
+async function generateGoogle() {
+  const model = $("modelSel").value;
+  const parts = [{ text: buildPrompt($("storyPrompt").value) }];
+  for (const r of refs) {
+    parts.push({ inline_data: { mime_type: r.mimeType, data: r.dataUrl.split(",")[1] } });
+  }
+  const body = {
+    contents: [{ parts }],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      imageConfig: { aspectRatio: "2:3" }   // portrait — standard comic page
+    }
+  };
+  try {
+    return await callGemini(model, body);
+  } catch (err) {
+    // If the chosen model 429s, retry once with the cheaper default model.
+    if (err.status === 429 && model !== FALLBACK_MODEL) {
+      $("modelSel").value = FALLBACK_MODEL;
+      setStatus("info", "That model hit its limit — retrying with Nano Banana 3.1…");
+      return await callGemini(FALLBACK_MODEL, body);
+    }
+    throw err;
+  }
+}
+
+/** Pollinations path: keyless & free.
+    Primary  — KONTEXT image-to-image: the reference page itself (shrunk to fit
+               in a URL) is sent as pixel input to FLUX Kontext, which draws
+               the next page conditioned directly on it.
+    Fallback — if Kontext is down/rejects the request, use flux text-to-image
+               with a vision-derived style sheet (computed internally).
+    If the story box is blank, the ONLY instruction is to continue naturally —
+    nothing is invented by the app. */
+async function callPollinations() {
+  const story = $("storyPrompt").value.trim();
+  const notes = $("styleDesc").value.trim();
+  freeEngineNote = "";
+
+  if (refs.length) {
+    const i2iErrors = [];
+    const candidates = await i2iCandidates();
+    if (candidates.length) {
+      const small = await shrinkForUrl(refs[0].dataUrl);
+      for (const m of candidates.slice(0, 2)) {
+        try {
+          setStatus("info", "Drawing the next page from your reference image (model: " + m + ")… 30–90 seconds.");
+          return await i2iRequest(m, small, story, notes);
+        } catch (e) {
+          i2iErrors.push(m + " → " + (e.status ? "HTTP " + e.status : e.name === "AbortError" ? "timeout" : e.message));
+        }
+      }
+    } else {
+      i2iErrors.push("service lists no image-input models for anonymous use");
+    }
+    // Be loud about it: the user must know the image was NOT used.
+    freeEngineNote = "⚠️ <b>Your reference image could NOT be used</b> (" + i2iErrors.join("; ") + "). " +
+                     "This page was drawn from a text description only — hit 🔁 Regenerate to retry image-to-image.";
+    setStatus("info", "Image-to-image failed (" + i2iErrors.join("; ") + ") — falling back to description mode…");
+  }
+
+  // Fallback: describe the reference with the free vision endpoint (internal
+  // only — nothing is written into the user's boxes) and render with flux.
+  let style = notes;
+  if (refs.length) {
+    try {
+      const seen = await describeRefsFree();
+      style = (seen + (notes ? " " + notes : "")).trim();
+    } catch (e) { console.warn("Style extraction failed, continuing without it:", e); }
+  }
+  let p = "A full comic book page, classic 6-panel layout (2 columns x 3 rows grid, " +
+          "clean white gutters, black panel borders), professional comic art with speech bubbles. ";
+  if (style) p += "Art style and characters (match precisely): " + style + " ";
+  p += story ? "The page shows, panel by panel: " + story
+             : "A natural continuation of the previous page's story.";
+  const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p.slice(0, 1800)) +
+              "?width=1024&height=1536&nologo=true&seed=" + Math.floor(Math.random() * 1e9);
+  return await fetchImage(url);
+}
+
+/** Result-status footnote set by the free engine when something degraded. */
+let freeEngineNote = "";
+
+/** Ask the service which models exist right now and keep the image-input
+    capable ones, best first. Falls back to educated guesses if the models
+    endpoint itself is unreachable. */
+async function i2iCandidates() {
+  const PREFERRED = ["nanobanana", "gptimage", "kontext", "flux-kontext", "seedream"];
+  try {
+    const res = await fetchT("https://image.pollinations.ai/models", {}, 15000);
+    if (!res.ok) throw new Error("models endpoint HTTP " + res.status);
+    const list = await res.json();
+    const names = (Array.isArray(list) ? list : []).map(x =>
+      (typeof x === "string" ? x : (x && (x.name || x.id)) || "").toLowerCase());
+    const found = PREFERRED.filter(p => names.some(n => n === p || n.includes(p)));
+    console.log("pollinations models:", names, "→ image-input candidates:", found);
+    return found;
+  } catch (e) {
+    console.warn("model discovery failed, guessing:", e);
+    return ["kontext", "nanobanana"];
+  }
+}
+
+/** Image-to-image request: reference page goes in as actual pixels. */
+async function i2iRequest(model, smallRefDataUrl, story, notes) {
+  let instr = "Create the NEXT page of this comic: a brand new full comic book page with a " +
+              "6-panel layout (2 columns x 3 rows, clean white gutters, black panel borders). " +
+              "Keep exactly the same art style, line work, color palette, shading, character " +
+              "designs and lettering as this reference page. ";
+  if (notes) instr += notes + ". ";
+  instr += story ? "This new page shows, panel by panel: " + story
+                 : "Continue the story naturally from where the reference page leaves off.";
+  const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(instr.slice(0, 1500)) +
+              "?model=" + encodeURIComponent(model) +
+              "&image=" + encodeURIComponent(smallRefDataUrl) +
+              "&width=1024&height=1536&nologo=true" +
+              "&referrer=" + encodeURIComponent(location.origin) +
+              "&seed=" + Math.floor(Math.random() * 1e9);
+  return await fetchImage(url);
+}
+
+/** Shrink a reference image until its base64 data URL fits in a GET URL
+    (~24k chars keeps the whole request safely under proxy/CDN limits). */
+function shrinkForUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let px = 448, q = 0.55, out;
+      do {
+        const scale = px / Math.max(img.width, img.height);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        out = c.toDataURL("image/jpeg", q);
+        px = Math.round(px * 0.8); q = Math.max(0.4, q - 0.05);
+      } while (out.length > 12000 && px >= 160);
+      resolve(out);
+    };
+    img.onerror = () => reject(new Error("could not read reference"));
+    img.src = dataUrl;
+  });
+}
+
+/** GET an image URL (with timeout) and return it as a dataURL. */
+async function fetchImage(url) {
+  const res = await fetchT(url, {}, 150000);
+  if (!res.ok) {
+    let detail = ""; try { detail = (await res.text()).slice(0, 160); } catch (_) {}
+    console.warn("pollinations error", res.status, detail);
+    const e = new Error("The free image service answered HTTP " + res.status + (detail ? " (" + detail + ")" : "") + " — it gets busy; try again in a minute.");
+    e.status = res.status; e.pollinations = true; throw e;
+  }
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+/** Ask Pollinations' free vision endpoint to describe the reference images. */
+async function describeRefsFree() {
+  const content = [{
+    type: "text",
+    text: "This is a page from a comic. Describe its visual style so another artist could " +
+          "imitate it without seeing it: art style, line work, coloring palette, shading, " +
+          "lighting, tone, and a compact visual description of each character (species, " +
+          "build, hair, face, clothing, distinctive features). Under 130 words. No preamble."
+  }];
+  for (const r of refs.slice(0, 3)) {
+    content.push({ type: "image_url", image_url: { url: r.dataUrl } });
+  }
+  const res = await fetchT("https://text.pollinations.ai/openai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "openai", messages: [{ role: "user", content }] })
+  }, 60000);
+  if (!res.ok) throw new Error("vision endpoint HTTP " + res.status);
+  const d = await res.json();
+  return (d.choices?.[0]?.message?.content || "").trim();
+}
+
+/** fetch() with a timeout so a hung free-service request can't spin forever. */
+function fetchT(url, opts, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
+}
+
+/** POST to generateContent; returns a dataURL of the generated image. */
+async function callGemini(model, body, isRetry) {
+  const res = await fetch(API_BASE + model + ":generateContent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": getKey() },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    let msg = "HTTP " + res.status;
+    try { msg = (await res.json()).error?.message || msg; } catch (_) {}
+    // Some model versions reject imageConfig — retry once without it.
+    if (!isRetry && /imageConfig|aspect/i.test(msg)) {
+      const b2 = structuredClone(body);
+      delete b2.generationConfig.imageConfig;
+      return callGemini(model, b2, true);
+    }
+    const e = new Error(msg); e.status = res.status; throw e;
+  }
+
+  const data = await res.json();
+  const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData || p.inline_data);
+  if (!part) {
+    const block = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason;
+    throw new Error(block ? "The model returned no image (reason: " + block + "). Try rewording your description."
+                          : "The model returned no image. Please try again.");
+  }
+  const d = part.inlineData || part.inline_data;
+  return "data:" + (d.mimeType || d.mime_type || "image/png") + ";base64," + d.data;
+}
+
+/** Translate raw API errors into actionable messages. */
+function friendlyError(err) {
+  const m = String(err.message || err);
+  if (err.pollinations) return m;
+  if (err.status === 400 && /API key/i.test(m)) return "Your API key looks invalid — re-paste it in ⚙️ Setup.";
+  if (err.status === 401 || err.status === 403) return "Key not accepted (" + err.status + "). Create a fresh free key at aistudio.google.com/apikey.";
+  if (err.status === 429) {
+    // "limit: 0" on free_tier metrics = the key's project has billing disabled.
+    // Google currently gives unbilled API keys ZERO image-generation quota.
+    if (/free_tier/i.test(m) && /limit:\s*0/.test(m)) {
+      return "Your API key has no image-generation allowance: Google currently requires billing " +
+             "to be attached to the key's project for image models (this is Google policy — not something you used up). " +
+             "Fix: in <a href='https://aistudio.google.com/' target='_blank' rel='noopener'>AI Studio</a> click your key's project → “Set up billing”. " +
+             "New Google Cloud accounts include $300 of free trial credit, and one comic page costs only a few cents. " +
+             "No billing? You can generate pages by hand for free in the AI Studio web app with the same prompt + reference image.";
+    }
+    return "Rate limit reached on this model — wait a minute and try again.";
+  }
+  if (err.status === 404) return "This model isn't available for your key yet — switch models in step 2 and retry.";
+  if (/Failed to fetch|NetworkError/i.test(m)) return "Network error — check your connection (generation needs internet; everything else works offline).";
+  return "Generation failed: " + m;
+}
+
+/* ==========================================================================
+   RESULT DISPLAY & DOWNLOAD
+   ========================================================================== */
+function showResult(dataUrl) {
+  const stack = $("refStack");
+  stack.innerHTML = "";
+  refs.forEach(r => { const i = new Image(); i.src = r.dataUrl; stack.appendChild(i); });
+  $("resultImg").src = dataUrl;
+  $("resultArea").style.display = "block";
+  $("resultArea").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+$("downloadBtn").onclick = () => lastResult && downloadPng(lastResult, "comic-next-page");
+
+/** Download any image dataURL as a PNG file (re-encodes via canvas if needed). */
+function downloadPng(dataUrl, baseName) {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = img.width; c.height = img.height;
+    c.getContext("2d").drawImage(img, 0, 0);
+    const a = document.createElement("a");
+    a.href = c.toDataURL("image/png");
+    a.download = baseName + "-" + Date.now() + ".png";
+    a.click();
+  };
+  img.src = dataUrl;
+}
+
+/** "Chain" button: the generated page becomes the new reference, so you can
+    keep extending the comic page after page. */
+$("chainBtn").onclick = () => {
+  if (!lastResult) return;
+  refs = [{ dataUrl: lastResult, mimeType: "image/png", name: "generated page" }];
+  renderThumbs();
+  $("storyPrompt").value = "";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  setStatus("ok", "The generated page is now your reference — describe the next page and generate again!");
+};
+
+/* ==========================================================================
+   HISTORY — persisted in localStorage as compressed JPEGs (quota-safe)
+   ========================================================================== */
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(LS_HISTORY)) || []; }
+  catch (_) { return []; }
+}
+
+function saveToHistory(dataUrl, promptText) {
+  // Compress before storing: localStorage is only ~5 MB.
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, HISTORY_THUMB_W / img.width);
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const entry = {
+      img: c.toDataURL("image/jpeg", 0.8),
+      prompt: (promptText || "").slice(0, 300),
+      date: new Date().toISOString()
+    };
+    const hist = loadHistory();
+    hist.unshift(entry);
+    // Evict oldest entries until it fits.
+    while (hist.length) {
+      try { localStorage.setItem(LS_HISTORY, JSON.stringify(hist)); break; }
+      catch (_) { hist.pop(); }
+    }
+    renderGallery();
+  };
+  img.src = dataUrl;
+}
+
+function renderGallery() {
+  const hist = loadHistory();
+  $("histEmpty").style.display = hist.length ? "none" : "block";
+  const g = $("gallery");
+  g.innerHTML = "";
+  hist.forEach((h, i) => {
+    const d = document.createElement("div");
+    d.className = "g-item";
+    const when = new Date(h.date).toLocaleDateString() + " " +
+                 new Date(h.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    d.innerHTML = `<img src="${h.img}" alt="Generated page ${i + 1}">
+                   <div class="cap" title="${(h.prompt || "").replace(/"/g, "&quot;")}">${h.prompt || when}</div>`;
+    d.onclick = () => { lastResult = h.img; showResult(h.img); };
+    g.appendChild(d);
+  });
+}
+
+$("clearHist").onclick = () => {
+  if (confirm("Delete all saved pages from this browser?")) {
+    localStorage.removeItem(LS_HISTORY);
+    renderGallery();
+  }
+};
+
+/* ==========================================================================
+   INIT
+   ========================================================================== */
+$("engineSel").value = localStorage.getItem(LS_ENGINE) || "pollinations";
+applyEngineUI();
+renderGallery();
+$("verBadge").textContent = "Comic Page Extender " + APP_VERSION;
+
+// Offline support: register the service worker (only works over http/https,
+// so it is skipped when the file is opened directly via file://).
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {/* offline mode unavailable */});
+}
+</script>
+</body>
+</html>
