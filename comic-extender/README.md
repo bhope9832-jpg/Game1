@@ -45,6 +45,16 @@ python3 -m http.server 8000           # then visit http://localhost:8000
 
 You can also host it anywhere static files go (GitHub Pages, Netlify, etc.).
 
+## Two engines
+
+- **Free (default)** — [Pollinations](https://pollinations.ai), a keyless free
+  image service. Works immediately with no account and no key. It cannot see
+  your reference image, so the app shows a "describe the art style" box and
+  bakes your words into the prompt — style matching is approximate, not exact.
+- **Google Nano Banana** — the Gemini image models. Far better at exactly
+  matching your reference page's style (it actually looks at the image), but
+  Google requires an API key from a billed project (details below).
+
 ## AI access — how it works (please read)
 
 The app talks straight to the **Gemini API** with a key you paste once. The

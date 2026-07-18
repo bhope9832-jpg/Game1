@@ -285,12 +285,23 @@ ol.howto li { margin-bottom: 5px; }
     <textarea id="storyPrompt"
       placeholder="Describe the next scene… e.g. “The hero chases the thief across the rooftops, slips on a skylight, and comes face to face with the masked boss.” Leave empty to let the AI continue the story on its own."></textarea>
     <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; align-items:center">
+      <label class="hint" for="engineSel">Engine:</label>
+      <select id="engineSel" style="width:auto; flex:1; min-width:200px">
+        <option value="pollinations">Free — no key needed (weaker style match)</option>
+        <option value="google">Google Nano Banana — best quality (key + billing)</option>
+      </select>
+    </div>
+    <div id="modelRow" style="display:none; gap:10px; margin-top:10px; flex-wrap:wrap; align-items:center">
       <label class="hint" for="modelSel">Model:</label>
       <select id="modelSel" style="width:auto; flex:1; min-width:200px">
         <option value="gemini-3.1-flash-image">Nano Banana 3.1 — newest, fast (recommended)</option>
         <option value="gemini-3-pro-image">Nano Banana Pro — best quality</option>
         <option value="gemini-2.5-flash-image">Nano Banana 2.5 — original</option>
       </select>
+    </div>
+    <div id="styleRow" style="margin-top:10px">
+      <textarea id="styleDesc" style="min-height:64px"
+        placeholder="Free engine can't see your uploaded image — describe the art style in words for a closer match… e.g. “gritty noir comic, heavy black inks, green-tinted palette, blonde anthro girl with a dog nose and freckles, torn white top”."></textarea>
     </div>
   </section>
 
@@ -383,13 +394,29 @@ function getKey() { return localStorage.getItem(LS_KEY) || ""; }
 function renderKeyState() {
   const el = $("keyState");
   if (getKey()) {
-    el.innerHTML = '<span class="ok-dot">●</span> Key saved — you are ready to generate.';
+    el.innerHTML = '<span class="ok-dot">●</span> Key saved — the Google engine is ready.';
     $("settingsBox").open = false;
   } else {
-    el.innerHTML = '<span class="err-dot">●</span> No key yet — generation will not work until you add one.';
-    $("settingsBox").open = true;
+    el.innerHTML = '<span class="err-dot">●</span> No key — only needed for the Google engine; the Free engine works without one.';
+    // Only nag about the key when the Google engine is actually selected.
+    $("settingsBox").open = $("engineSel").value === "google";
   }
 }
+
+/* ==========================================================================
+   ENGINE SWITCHING — Google (key + billing, uses reference images) vs.
+   Pollinations (100% free, keyless, text-only prompt)
+   ========================================================================== */
+const LS_ENGINE = "cpx_engine";
+
+function applyEngineUI() {
+  const g = $("engineSel").value === "google";
+  $("modelRow").style.display = g ? "flex" : "none";
+  $("styleRow").style.display = g ? "none" : "block";
+  localStorage.setItem(LS_ENGINE, $("engineSel").value);
+  renderKeyState();
+}
+$("engineSel").onchange = applyEngineUI;
 $("saveKey").onclick = () => {
   const v = $("apiKey").value.trim();
   if (!v) return setStatus("error", "Paste a key first.");
@@ -485,41 +512,22 @@ $("retryBtn").onclick = generate;
 
 async function generate() {
   if (busy) return;
+  const engine = $("engineSel").value;
   if (!refs.length) return setStatus("error", "Upload at least one reference image first (step 1).");
-  if (!getKey())    return setStatus("error", "Add your free API key first — open the ⚙️ Setup section at the top.");
+  if (engine === "google" && !getKey())
+    return setStatus("error", "The Google engine needs an API key — open the ⚙️ Setup section, or switch the engine to “Free”.");
 
   busy = true;
   $("goBtn").disabled = true;
-  setStatus("info", "Drawing your next page… this usually takes 10–40 seconds.");
-
-  const model = $("modelSel").value;
-  const parts = [{ text: buildPrompt($("storyPrompt").value) }];
-  for (const r of refs) {
-    parts.push({ inline_data: { mime_type: r.mimeType, data: r.dataUrl.split(",")[1] } });
-  }
-
-  const body = {
-    contents: [{ parts }],
-    generationConfig: {
-      responseModalities: ["TEXT", "IMAGE"],
-      imageConfig: { aspectRatio: "2:3" }   // portrait — standard comic page
-    }
-  };
 
   try {
     let img;
-    try {
-      img = await callGemini(model, body);
-    } catch (err) {
-      // Nano Banana Pro has no free API quota — Google answers 429 even with
-      // zero usage. Fall back to Nano Banana automatically instead of failing.
-      if (err.status === 429 && model !== FALLBACK_MODEL) {
-        $("modelSel").value = FALLBACK_MODEL;
-        setStatus("info", "Nano Banana Pro isn't available on the free tier — retrying with Nano Banana…");
-        img = await callGemini(FALLBACK_MODEL, body);
-      } else {
-        throw err;
-      }
+    if (engine === "google") {
+      setStatus("info", "Drawing your next page… this usually takes 10–40 seconds.");
+      img = await generateGoogle();
+    } else {
+      setStatus("info", "Drawing your next page with the free engine… this can take 30–90 seconds.");
+      img = await callPollinations();
     }
     lastResult = img;
     showResult(img);
@@ -531,6 +539,59 @@ async function generate() {
     busy = false;
     $("goBtn").disabled = false;
   }
+}
+
+/** Google path: reference images attached, exact style matching. */
+async function generateGoogle() {
+  const model = $("modelSel").value;
+  const parts = [{ text: buildPrompt($("storyPrompt").value) }];
+  for (const r of refs) {
+    parts.push({ inline_data: { mime_type: r.mimeType, data: r.dataUrl.split(",")[1] } });
+  }
+  const body = {
+    contents: [{ parts }],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      imageConfig: { aspectRatio: "2:3" }   // portrait — standard comic page
+    }
+  };
+  try {
+    return await callGemini(model, body);
+  } catch (err) {
+    // If the chosen model 429s, retry once with the cheaper default model.
+    if (err.status === 429 && model !== FALLBACK_MODEL) {
+      $("modelSel").value = FALLBACK_MODEL;
+      setStatus("info", "That model hit its limit — retrying with Nano Banana 3.1…");
+      return await callGemini(FALLBACK_MODEL, body);
+    }
+    throw err;
+  }
+}
+
+/** Pollinations path: keyless & free. It cannot see the reference images, so
+    the prompt leans on the user's written style description instead. */
+async function callPollinations() {
+  let p = "A full comic book page, classic 6-panel layout (2 columns x 3 rows grid, " +
+          "clean white gutters, black panel borders), professional comic art with speech bubbles. ";
+  const style = $("styleDesc").value.trim();
+  if (style) p += "Art style: " + style + ". ";
+  const story = $("storyPrompt").value.trim();
+  p += story ? "The page shows, panel by panel: " + story
+             : "An exciting continuation of an action scene.";
+  const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p.slice(0, 1800)) +
+              "?width=1024&height=1536&nologo=true&seed=" + Math.floor(Math.random() * 1e9);
+  const res = await fetch(url);
+  if (!res.ok) {
+    const e = new Error("The free image service answered HTTP " + res.status + " — it gets busy; try again in a minute.");
+    e.status = res.status; e.pollinations = true; throw e;
+  }
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
 }
 
 /** POST to generateContent; returns a dataURL of the generated image. */
@@ -567,6 +628,7 @@ async function callGemini(model, body, isRetry) {
 /** Translate raw API errors into actionable messages. */
 function friendlyError(err) {
   const m = String(err.message || err);
+  if (err.pollinations) return m;
   if (err.status === 400 && /API key/i.test(m)) return "Your API key looks invalid — re-paste it in ⚙️ Setup.";
   if (err.status === 401 || err.status === 403) return "Key not accepted (" + err.status + "). Create a fresh free key at aistudio.google.com/apikey.";
   if (err.status === 429) {
@@ -687,7 +749,8 @@ $("clearHist").onclick = () => {
 /* ==========================================================================
    INIT
    ========================================================================== */
-renderKeyState();
+$("engineSel").value = localStorage.getItem(LS_ENGINE) || "pollinations";
+applyEngineUI();
 renderGallery();
 
 // Offline support: register the service worker (only works over http/https,
