@@ -3,8 +3,9 @@
 Upload comic pages or panels and let AI draw the **next page** — a classic 6-panel
 layout in the exact same art style, colors, shading, character designs and tone.
 
-A single-file web app (`index.html`, zero dependencies, no build step) with a dark,
-mobile-friendly UI made for comic creators.
+A minimal static web app (all logic in `index.html`, plus a small service worker,
+manifest and icon for offline/PWA support — zero dependencies, no build step)
+with a dark, mobile-friendly UI made for comic creators.
 
 ## Features
 
@@ -21,8 +22,10 @@ mobile-friendly UI made for comic creators.
   page after page.
 - **History gallery** stored in your browser's localStorage (survives closing the
   tab; compressed copies so it never blows the storage quota).
-- **Responsive & touch-friendly** — works great on phones. The app shell works
-  offline; only generation itself needs internet.
+- **Responsive & touch-friendly** — works great on phones.
+- **Installable PWA with real offline support** — when served over http(s), a
+  service worker caches the app shell so it opens with no internet, and you can
+  "Add to Home Screen" on mobile. Only generation itself needs a connection.
 
 ## Run it locally
 

@@ -1,0 +1,12 @@
+{
+  "name": "Comic Page Extender",
+  "short_name": "ComicExtend",
+  "description": "Upload comic pages and let AI draw the next page in the same art style.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0d1017",
+  "theme_color": "#0d1017",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
