@@ -301,7 +301,7 @@ ol.howto li { margin-bottom: 5px; }
     </div>
     <div id="styleRow" style="margin-top:10px">
       <textarea id="styleDesc" style="min-height:64px"
-        placeholder="Free engine can't see your uploaded image — describe the art style in words for a closer match… e.g. “gritty noir comic, heavy black inks, green-tinted palette, blonde anthro girl with a dog nose and freckles, torn white top”."></textarea>
+        placeholder="Art style — leave empty and the free engine will READ YOUR UPLOADED IMAGE and fill this in automatically on generate. Edit it freely afterwards; clear it to re-read from the image."></textarea>
     </div>
   </section>
 
@@ -353,7 +353,7 @@ ol.howto li { margin-bottom: 5px; }
 /* ==========================================================================
    STATE & CONSTANTS
    ========================================================================== */
-const APP_VERSION = "v5 — free keyless engine + instant updates";
+const APP_VERSION = "v6 — free engine now reads your reference image";
 const API_BASE   = "https://generativelanguage.googleapis.com/v1beta/models/";
 const LS_KEY     = "cpx_api_key";      // localStorage: API key
 const LS_HISTORY = "cpx_history";      // localStorage: gallery entries
@@ -573,19 +573,37 @@ async function generateGoogle() {
   }
 }
 
-/** Pollinations path: keyless & free. It cannot see the reference images, so
-    the prompt leans on the user's written style description instead. */
+/** Pollinations path: keyless & free, in two stages.
+    Stage 1 — VISION: the free text endpoint looks at the uploaded reference
+    image(s) and writes a detailed style sheet. It lands in the style box so
+    the user can see exactly what the AI saw and edit it for future runs.
+    Stage 2 — IMAGE: that style sheet + the user's panel script are rendered
+    as the next page. */
 async function callPollinations() {
+  let style = $("styleDesc").value.trim();
+
+  // Stage 1: only when the box is empty (clearing it forces a re-read).
+  if (!style && refs.length) {
+    setStatus("info", "Free engine is reading your reference page to learn its art style…");
+    try {
+      style = await describeRefsFree();
+      if (style) $("styleDesc").value = style;
+    } catch (e) {
+      console.warn("Style extraction failed, continuing without it:", e);
+    }
+    setStatus("info", "Drawing your next page with the free engine… this can take 30–90 seconds.");
+  }
+
+  // Stage 2: generate the page.
   let p = "A full comic book page, classic 6-panel layout (2 columns x 3 rows grid, " +
           "clean white gutters, black panel borders), professional comic art with speech bubbles. ";
-  const style = $("styleDesc").value.trim();
-  if (style) p += "Art style: " + style + ". ";
+  if (style) p += "Art style and characters (match precisely): " + style + " ";
   const story = $("storyPrompt").value.trim();
   p += story ? "The page shows, panel by panel: " + story
              : "An exciting continuation of an action scene.";
   const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p.slice(0, 1800)) +
               "?width=1024&height=1536&nologo=true&seed=" + Math.floor(Math.random() * 1e9);
-  const res = await fetch(url);
+  const res = await fetchT(url, {}, 150000);
   if (!res.ok) {
     const e = new Error("The free image service answered HTTP " + res.status + " — it gets busy; try again in a minute.");
     e.status = res.status; e.pollinations = true; throw e;
@@ -597,6 +615,35 @@ async function callPollinations() {
     r.onerror = reject;
     r.readAsDataURL(blob);
   });
+}
+
+/** Ask Pollinations' free vision endpoint to describe the reference images. */
+async function describeRefsFree() {
+  const content = [{
+    type: "text",
+    text: "This is a page from a comic. Describe its visual style so another artist could " +
+          "imitate it without seeing it: art style, line work, coloring palette, shading, " +
+          "lighting, tone, and a compact visual description of each character (species, " +
+          "build, hair, face, clothing, distinctive features). Under 130 words. No preamble."
+  }];
+  for (const r of refs.slice(0, 3)) {
+    content.push({ type: "image_url", image_url: { url: r.dataUrl } });
+  }
+  const res = await fetchT("https://text.pollinations.ai/openai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "openai", messages: [{ role: "user", content }] })
+  }, 60000);
+  if (!res.ok) throw new Error("vision endpoint HTTP " + res.status);
+  const d = await res.json();
+  return (d.choices?.[0]?.message?.content || "").trim();
+}
+
+/** fetch() with a timeout so a hung free-service request can't spin forever. */
+function fetchT(url, opts, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
 }
 
 /** POST to generateContent; returns a dataURL of the generated image. */
