@@ -353,7 +353,7 @@ ol.howto li { margin-bottom: 5px; }
 /* ==========================================================================
    STATE & CONSTANTS
    ========================================================================== */
-const APP_VERSION = "v7 — image-to-image: your page goes straight into the model";
+const APP_VERSION = "v8 — image-to-image with model discovery + honest failure reporting";
 const API_BASE   = "https://generativelanguage.googleapis.com/v1beta/models/";
 const LS_KEY     = "cpx_api_key";      // localStorage: API key
 const LS_HISTORY = "cpx_history";      // localStorage: gallery entries
@@ -537,7 +537,8 @@ async function generate() {
     lastResult = img;
     showResult(img);
     saveToHistory(img, $("storyPrompt").value);
-    setStatus("ok", "Done! Scroll down to see and download your page.");
+    setStatus("ok", "Done! Scroll down to see and download your page." +
+                    (freeEngineNote ? "<br><br>" + freeEngineNote : ""));
   } catch (err) {
     setStatus("error", friendlyError(err));
   } finally {
@@ -584,15 +585,28 @@ async function generateGoogle() {
 async function callPollinations() {
   const story = $("storyPrompt").value.trim();
   const notes = $("styleDesc").value.trim();
+  freeEngineNote = "";
 
   if (refs.length) {
-    try {
-      setStatus("info", "Drawing the next page from your reference image (image-to-image)… 30–90 seconds.");
-      return await kontextNextPage(story, notes);
-    } catch (e) {
-      console.warn("Kontext image-to-image failed, using fallback:", e);
-      setStatus("info", "Image-to-image is busy — falling back to style-description mode…");
+    const i2iErrors = [];
+    const candidates = await i2iCandidates();
+    if (candidates.length) {
+      const small = await shrinkForUrl(refs[0].dataUrl);
+      for (const m of candidates.slice(0, 2)) {
+        try {
+          setStatus("info", "Drawing the next page from your reference image (model: " + m + ")… 30–90 seconds.");
+          return await i2iRequest(m, small, story, notes);
+        } catch (e) {
+          i2iErrors.push(m + " → " + (e.status ? "HTTP " + e.status : e.name === "AbortError" ? "timeout" : e.message));
+        }
+      }
+    } else {
+      i2iErrors.push("service lists no image-input models for anonymous use");
     }
+    // Be loud about it: the user must know the image was NOT used.
+    freeEngineNote = "⚠️ <b>Your reference image could NOT be used</b> (" + i2iErrors.join("; ") + "). " +
+                     "This page was drawn from a text description only — hit 🔁 Regenerate to retry image-to-image.";
+    setStatus("info", "Image-to-image failed (" + i2iErrors.join("; ") + ") — falling back to description mode…");
   }
 
   // Fallback: describe the reference with the free vision endpoint (internal
@@ -614,9 +628,31 @@ async function callPollinations() {
   return await fetchImage(url);
 }
 
-/** Image-to-image with FLUX Kontext: reference page goes in as actual pixels. */
-async function kontextNextPage(story, notes) {
-  const small = await shrinkForUrl(refs[0].dataUrl);
+/** Result-status footnote set by the free engine when something degraded. */
+let freeEngineNote = "";
+
+/** Ask the service which models exist right now and keep the image-input
+    capable ones, best first. Falls back to educated guesses if the models
+    endpoint itself is unreachable. */
+async function i2iCandidates() {
+  const PREFERRED = ["nanobanana", "gptimage", "kontext", "flux-kontext", "seedream"];
+  try {
+    const res = await fetchT("https://image.pollinations.ai/models", {}, 15000);
+    if (!res.ok) throw new Error("models endpoint HTTP " + res.status);
+    const list = await res.json();
+    const names = (Array.isArray(list) ? list : []).map(x =>
+      (typeof x === "string" ? x : (x && (x.name || x.id)) || "").toLowerCase());
+    const found = PREFERRED.filter(p => names.some(n => n === p || n.includes(p)));
+    console.log("pollinations models:", names, "→ image-input candidates:", found);
+    return found;
+  } catch (e) {
+    console.warn("model discovery failed, guessing:", e);
+    return ["kontext", "nanobanana"];
+  }
+}
+
+/** Image-to-image request: reference page goes in as actual pixels. */
+async function i2iRequest(model, smallRefDataUrl, story, notes) {
   let instr = "Create the NEXT page of this comic: a brand new full comic book page with a " +
               "6-panel layout (2 columns x 3 rows, clean white gutters, black panel borders). " +
               "Keep exactly the same art style, line work, color palette, shading, character " +
@@ -625,8 +661,11 @@ async function kontextNextPage(story, notes) {
   instr += story ? "This new page shows, panel by panel: " + story
                  : "Continue the story naturally from where the reference page leaves off.";
   const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(instr.slice(0, 1500)) +
-              "?model=kontext&image=" + encodeURIComponent(small) +
-              "&width=1024&height=1536&nologo=true&seed=" + Math.floor(Math.random() * 1e9);
+              "?model=" + encodeURIComponent(model) +
+              "&image=" + encodeURIComponent(smallRefDataUrl) +
+              "&width=1024&height=1536&nologo=true" +
+              "&referrer=" + encodeURIComponent(location.origin) +
+              "&seed=" + Math.floor(Math.random() * 1e9);
   return await fetchImage(url);
 }
 
@@ -636,7 +675,7 @@ function shrinkForUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      let px = 512, q = 0.6, out;
+      let px = 448, q = 0.55, out;
       do {
         const scale = px / Math.max(img.width, img.height);
         const c = document.createElement("canvas");
@@ -645,7 +684,7 @@ function shrinkForUrl(dataUrl) {
         c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
         out = c.toDataURL("image/jpeg", q);
         px = Math.round(px * 0.8); q = Math.max(0.4, q - 0.05);
-      } while (out.length > 24000 && px >= 160);
+      } while (out.length > 12000 && px >= 160);
       resolve(out);
     };
     img.onerror = () => reject(new Error("could not read reference"));
@@ -657,7 +696,9 @@ function shrinkForUrl(dataUrl) {
 async function fetchImage(url) {
   const res = await fetchT(url, {}, 150000);
   if (!res.ok) {
-    const e = new Error("The free image service answered HTTP " + res.status + " — it gets busy; try again in a minute.");
+    let detail = ""; try { detail = (await res.text()).slice(0, 160); } catch (_) {}
+    console.warn("pollinations error", res.status, detail);
+    const e = new Error("The free image service answered HTTP " + res.status + (detail ? " (" + detail + ")" : "") + " — it gets busy; try again in a minute.");
     e.status = res.status; e.pollinations = true; throw e;
   }
   const blob = await res.blob();
