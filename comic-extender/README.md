@@ -45,24 +45,33 @@ python3 -m http.server 8000           # then visit http://localhost:8000
 
 You can also host it anywhere static files go (GitHub Pages, Netlify, etc.).
 
-## Free AI access — how it works (please read)
+## AI access — how it works (please read)
 
-The app uses the **Gemini API free tier**. One honest clarification: there is no
-way for any web app to call Nano Banana Pro with literally *no* key — Google
-requires one on every request. What *is* free:
+The app talks straight to the **Gemini API** with a key you paste once. The
+honest state of "free" (verified empirically, mid-2026): Google gives API keys
+**zero free image-generation quota** — every image model answers
+`429 RESOURCE_EXHAUSTED, limit: 0` until the key's Google Cloud project has
+billing attached. Text models are free; image models are not. What that means
+in practice:
 
-1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-   (a normal free Google account is enough — **no credit card, no payment**).
-2. Click **Create API key** and copy it.
-3. Paste it into the app's ⚙️ *Setup* section (top of the page), once.
+1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and
+   click **Create API key**.
+2. Attach billing to the key's project (AI Studio shows a **Set up billing**
+   link). New Google Cloud accounts include **$300 of free trial credit**, and
+   a generated comic page costs a few cents — so the trial credit is
+   effectively thousands of pages at no out-of-pocket cost.
+3. Paste the key into the app's ⚙️ *Setup* section (top of the page), once.
+
+No billing at all? You can still generate pages **by hand for free** in the
+[Google AI Studio](https://aistudio.google.com/) web app: pick an image model,
+attach your reference page, and use the same prompt the app builds (see
+`buildPrompt()` in `index.html`).
 
 The key is stored **only in your browser's localStorage** and sent **only to
-Google's API endpoint** — this app has no server and never sees it. Model quota reality check: **Nano Banana** (`gemini-2.5-flash-image`) has a real
-free quota and is the app's default. **Nano Banana Pro**
-(`gemini-3-pro-image-preview`) has no free API quota — Google returns a 429
-"rate limit" instantly even with zero usage unless your key belongs to a billed
-Google Cloud project. If you pick Pro without billing, the app detects that 429
-and automatically retries with Nano Banana.
+Google's API endpoint** — this app has no server and never sees it. If a
+selected model 429s, the app automatically retries with the cheaper
+`gemini-3.1-flash-image` and shows an accurate explanation (billing missing vs.
+genuine rate limit).
 
 > ⚠️ Because the key lives in the browser, this setup is for **personal use**.
 > If you publish the app for other people, each visitor should paste their own
