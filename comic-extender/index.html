@@ -301,7 +301,7 @@ ol.howto li { margin-bottom: 5px; }
     </div>
     <div id="styleRow" style="margin-top:10px">
       <textarea id="styleDesc" style="min-height:64px"
-        placeholder="Art style — leave empty and the free engine will READ YOUR UPLOADED IMAGE and fill this in automatically on generate. Edit it freely afterwards; clear it to re-read from the image."></textarea>
+        placeholder="Optional style notes (e.g. “Cali has no tail and no animal ears”) — added on top of what the engine takes from your reference image. Leave empty if you have nothing to correct."></textarea>
     </div>
   </section>
 
@@ -353,7 +353,7 @@ ol.howto li { margin-bottom: 5px; }
 /* ==========================================================================
    STATE & CONSTANTS
    ========================================================================== */
-const APP_VERSION = "v6 — free engine now reads your reference image";
+const APP_VERSION = "v7 — image-to-image: your page goes straight into the model";
 const API_BASE   = "https://generativelanguage.googleapis.com/v1beta/models/";
 const LS_KEY     = "cpx_api_key";      // localStorage: API key
 const LS_HISTORY = "cpx_history";      // localStorage: gallery entries
@@ -573,36 +573,88 @@ async function generateGoogle() {
   }
 }
 
-/** Pollinations path: keyless & free, in two stages.
-    Stage 1 — VISION: the free text endpoint looks at the uploaded reference
-    image(s) and writes a detailed style sheet. It lands in the style box so
-    the user can see exactly what the AI saw and edit it for future runs.
-    Stage 2 — IMAGE: that style sheet + the user's panel script are rendered
-    as the next page. */
+/** Pollinations path: keyless & free.
+    Primary  — KONTEXT image-to-image: the reference page itself (shrunk to fit
+               in a URL) is sent as pixel input to FLUX Kontext, which draws
+               the next page conditioned directly on it.
+    Fallback — if Kontext is down/rejects the request, use flux text-to-image
+               with a vision-derived style sheet (computed internally).
+    If the story box is blank, the ONLY instruction is to continue naturally —
+    nothing is invented by the app. */
 async function callPollinations() {
-  let style = $("styleDesc").value.trim();
+  const story = $("storyPrompt").value.trim();
+  const notes = $("styleDesc").value.trim();
 
-  // Stage 1: only when the box is empty (clearing it forces a re-read).
-  if (!style && refs.length) {
-    setStatus("info", "Free engine is reading your reference page to learn its art style…");
+  if (refs.length) {
     try {
-      style = await describeRefsFree();
-      if (style) $("styleDesc").value = style;
+      setStatus("info", "Drawing the next page from your reference image (image-to-image)… 30–90 seconds.");
+      return await kontextNextPage(story, notes);
     } catch (e) {
-      console.warn("Style extraction failed, continuing without it:", e);
+      console.warn("Kontext image-to-image failed, using fallback:", e);
+      setStatus("info", "Image-to-image is busy — falling back to style-description mode…");
     }
-    setStatus("info", "Drawing your next page with the free engine… this can take 30–90 seconds.");
   }
 
-  // Stage 2: generate the page.
+  // Fallback: describe the reference with the free vision endpoint (internal
+  // only — nothing is written into the user's boxes) and render with flux.
+  let style = notes;
+  if (refs.length) {
+    try {
+      const seen = await describeRefsFree();
+      style = (seen + (notes ? " " + notes : "")).trim();
+    } catch (e) { console.warn("Style extraction failed, continuing without it:", e); }
+  }
   let p = "A full comic book page, classic 6-panel layout (2 columns x 3 rows grid, " +
           "clean white gutters, black panel borders), professional comic art with speech bubbles. ";
   if (style) p += "Art style and characters (match precisely): " + style + " ";
-  const story = $("storyPrompt").value.trim();
   p += story ? "The page shows, panel by panel: " + story
-             : "An exciting continuation of an action scene.";
+             : "A natural continuation of the previous page's story.";
   const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p.slice(0, 1800)) +
               "?width=1024&height=1536&nologo=true&seed=" + Math.floor(Math.random() * 1e9);
+  return await fetchImage(url);
+}
+
+/** Image-to-image with FLUX Kontext: reference page goes in as actual pixels. */
+async function kontextNextPage(story, notes) {
+  const small = await shrinkForUrl(refs[0].dataUrl);
+  let instr = "Create the NEXT page of this comic: a brand new full comic book page with a " +
+              "6-panel layout (2 columns x 3 rows, clean white gutters, black panel borders). " +
+              "Keep exactly the same art style, line work, color palette, shading, character " +
+              "designs and lettering as this reference page. ";
+  if (notes) instr += notes + ". ";
+  instr += story ? "This new page shows, panel by panel: " + story
+                 : "Continue the story naturally from where the reference page leaves off.";
+  const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(instr.slice(0, 1500)) +
+              "?model=kontext&image=" + encodeURIComponent(small) +
+              "&width=1024&height=1536&nologo=true&seed=" + Math.floor(Math.random() * 1e9);
+  return await fetchImage(url);
+}
+
+/** Shrink a reference image until its base64 data URL fits in a GET URL
+    (~24k chars keeps the whole request safely under proxy/CDN limits). */
+function shrinkForUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let px = 512, q = 0.6, out;
+      do {
+        const scale = px / Math.max(img.width, img.height);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        out = c.toDataURL("image/jpeg", q);
+        px = Math.round(px * 0.8); q = Math.max(0.4, q - 0.05);
+      } while (out.length > 24000 && px >= 160);
+      resolve(out);
+    };
+    img.onerror = () => reject(new Error("could not read reference"));
+    img.src = dataUrl;
+  });
+}
+
+/** GET an image URL (with timeout) and return it as a dataURL. */
+async function fetchImage(url) {
   const res = await fetchT(url, {}, 150000);
   if (!res.ok) {
     const e = new Error("The free image service answered HTTP " + res.status + " — it gets busy; try again in a minute.");
