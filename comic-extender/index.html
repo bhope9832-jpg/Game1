@@ -332,6 +332,10 @@ ol.howto li { margin-bottom: 5px; }
     </div>
   </section>
 
+  <!-- Version badge: bump APP_VERSION in the JS whenever the app changes, so
+       users (and support) can instantly see whether they have the latest. -->
+  <p class="hint" id="verBadge" style="text-align:center; margin-top:18px"></p>
+
   <!-- ======================= HISTORY ======================= -->
   <section class="card">
     <h2>🗂️ History <span class="hint">(saved in this browser)</span>
@@ -349,6 +353,7 @@ ol.howto li { margin-bottom: 5px; }
 /* ==========================================================================
    STATE & CONSTANTS
    ========================================================================== */
+const APP_VERSION = "v5 — free keyless engine + instant updates";
 const API_BASE   = "https://generativelanguage.googleapis.com/v1beta/models/";
 const LS_KEY     = "cpx_api_key";      // localStorage: API key
 const LS_HISTORY = "cpx_history";      // localStorage: gallery entries
@@ -752,6 +757,7 @@ $("clearHist").onclick = () => {
 $("engineSel").value = localStorage.getItem(LS_ENGINE) || "pollinations";
 applyEngineUI();
 renderGallery();
+$("verBadge").textContent = "Comic Page Extender " + APP_VERSION;
 
 // Offline support: register the service worker (only works over http/https,
 // so it is skipped when the file is opened directly via file://).
