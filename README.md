@@ -1,28 +1,40 @@
-# 🦴 RigStudio 3D
+# 🍔 Drive-Thru Dash
 
-Rig and animate 3D characters **right on your phone**. Built for touch: drag-and-drop bones that
-snap and auto-connect, automatic skinning, face rigs with expressions, jiggle physics, and a
-keyframe animation timeline — all in the browser, no install needed.
+A **32-bit style drive-thru burger arcade** for your phone. Cars roll past the window,
+each flashing a quick order bubble — build the burger, then **swipe up** to toss the bag
+through the open car window before they drive off hungry.
 
-## Features
+All the pixel art, chiptune music, and 8-bit sound effects are generated in code —
+no assets, no dependencies, works fully offline.
 
-- **Human & animal characters** — one tap creates a sample human or quadruped, fully rigged
-  and ready to pose. Or import your own `.glb` / `.gltf` / `.obj` model — the app reads the
-  model's proportions, picks the right template (biped vs quadruped), and auto-places the
-  skeleton inside it, fitted to the mesh on every axis.
-- **Drag & drop bones with magnetic snapping** — new bones auto-connect to the closest joint;
-  drag a loose bone near a skeleton and it snaps into the chain.
-- **Auto skinning** — one tap on 🧲 *Bind Skin* attaches the mesh to your skeleton
-  (nearest-bone weighting, 4 influences per vertex).
-- **Face rigging** — jaw, eyes, brows, mouth corners, lips and cheeks, plus one-tap
-  expression presets (Smile, Sad, Angry, Surprised, Jaw Open, Wink).
-- **Physics** — spring-bone dynamics for tails, ears, hair and other secondary motion.
-  Toggle ⚡ per bone; tune gravity / stiffness / damping in the menu.
-- **Full control** — every bone can be selected, renamed, rotated (drag or precise sliders),
-  translated, deleted, or given physics. Bone list drawer shows the whole hierarchy.
-- **Animation** — keyframe timeline with scrubbing, looping playback, and adjustable length.
-  Pose → press ◆ → move the playhead → pose again → ▶.
-- **Projects** — autosaves locally; save/load project files to share rigs and animations.
+## How to play
+
+| Action | Touch | Keyboard |
+|--------|-------|----------|
+| Add ingredient | Tap a button (bun, patty, cheese, lettuce, top bun) | `1`–`5` |
+| Serve | **Swipe up** from the prep station (swipe angle steers the throw!) | `Space` / `↑` |
+| Scrap a bad build | Tap **SCRAP** | `X` / `Backspace` |
+
+- **Match the bubble.** Each car shows its order as a mini burger — tap ingredients in
+  the same bottom-to-top sequence.
+- **Time the toss.** The bag flies from the serving window; it has to pass through the
+  car's open side window. Dead-center hits score a **PERFECT** bonus.
+- **Watch the traffic.** Slow minivans, sedans, pickups, and zooming sports cars all
+  roll left to right — later on you'll juggle up to three orders at once.
+- **Don't break the chain.** Missing the window, tossing the wrong burger, or letting a
+  car leave hungry breaks your combo *and* costs a life. Three strikes and it's closing time.
+- **Combo meter.** Consecutive deliveries raise your score multiplier — and the chiptune
+  soundtrack literally speeds up as your combo builds.
+
+## Progression
+
+High scores pay out **coins**, spent in the shop on:
+
+- 👕 **Outfits** — new looks for the chef (Cherry Crew, Chef Whites, Midnight)
+- 🏪 **Window styles** — restyle the drive-thru (Neon Nights, Mint Retro, Gold Deluxe)
+- 🎵 **Music tracks** — unlockable 32-bit soundtracks (Turbo Boulevard, Moonlit Cruise)
+
+Coins, unlocks, and your best score are saved locally.
 
 ## Run it
 
@@ -33,25 +45,6 @@ It's a static site — any web server works:
 npx serve .        # or: python3 -m http.server 8080
 ```
 
-Then open the printed URL. On your phone, open the same URL on your local network,
-or deploy with GitHub Pages (a workflow is included — merge to `main`, then check the
-repo's **Actions** tab; the site publishes to `https://<user>.github.io/<repo>/`).
-
-> Everything is vendored under `lib/` (Three.js), so the app works fully offline once loaded.
-
-## Quick guide
-
-| Mode | What you do |
-|------|-------------|
-| **Build** | Shape the skeleton. ✥ drag joints, ➕ tap to add bones (they snap to the nearest joint), ✂️ delete. Finish with 🧲 **Bind Skin**. |
-| **Pose** | Drag a joint to rotate its bone; ✥ to move it. 🙂 opens expressions, ⚡ toggles physics, ↺ resets the pose. |
-| **Animate** | Pose the character, press **◆** to keyframe, scrub the timeline, pose again, then **▶** to play. |
-
-Camera: 1 finger orbits, 2 fingers pan/zoom. Tap 🦴 for the bone hierarchy, ☰ for
-characters, import, physics settings and project save/load.
-
-## Tech
-
-Vanilla JS + [Three.js](https://threejs.org). No build step, no dependencies to install.
-Skinning uses distance-to-bone-segment weights; physics is verlet spring-bone integration;
-animation is slerp-interpolated quaternion + position tracks.
+Open the printed URL — on a phone, use the same URL over your local network, or deploy
+with GitHub Pages (a workflow is included: merge to `main` and the site publishes to
+`https://<user>.github.io/<repo>/`). Add it to your home screen for fullscreen play.
