@@ -1,13 +1,11 @@
 {
-  "name": "RigStudio 3D",
-  "short_name": "RigStudio",
-  "description": "Rig and animate 3D characters on your phone — bones, face rigs, physics, keyframes.",
+  "name": "Drive-Thru Dash",
+  "short_name": "DT Dash",
+  "description": "32-bit drive-thru burger arcade: build orders and toss them through car windows before they roll off-screen!",
   "start_url": ".",
-  "display": "standalone",
-  "orientation": "any",
-  "background_color": "#0e1420",
-  "theme_color": "#0e1420",
-  "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
-  ]
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#12081f",
+  "theme_color": "#12081f",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }
