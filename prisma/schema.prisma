@@ -197,6 +197,7 @@ enum Plan {
 }
 
 enum CreditTransactionType {
+  WELCOME_GRANT // one-time signup bonus
   DAILY_GRANT // free daily allowance refresh
   PLAN_GRANT // monthly credits from a subscription
   PACK_PURCHASE // one-time credit pack

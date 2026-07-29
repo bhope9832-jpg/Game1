@@ -18,7 +18,12 @@ export const PLANS: PlanConfig[] = [
     monthlyCredits: 0,
     dailyFreeCredits: 4,
     stripePriceEnv: null,
-    features: ["4 free credits every day", "All models included", "480p & 720p", "Personal use"],
+    features: [
+      "10 welcome credits — try every model",
+      "4 free credits every day",
+      "All models included",
+      "480p & 720p",
+    ],
   },
   {
     id: "STARTER",

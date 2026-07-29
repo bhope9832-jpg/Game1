@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import Resend from "next-auth/providers/resend";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
+import { initializeNewUser } from "@/lib/onboarding";
 
 function adminEmails(): string[] {
   return (process.env.ADMIN_EMAILS ?? "")
@@ -24,22 +25,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   events: {
-    // Give brand-new users their first daily allowance, flag platform admins,
-    // and claim any pending team invites addressed to their email.
+    // Give brand-new users their signup grants (welcome bonus + first daily
+    // allowance — see lib/onboarding.js), flag platform admins, and claim any
+    // pending team invites addressed to their email.
     async createUser({ user }) {
       if (!user.id || !user.email) return;
       const email = user.email.toLowerCase();
-      const isPlatformAdmin = adminEmails().includes(email);
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          platformRole: isPlatformAdmin ? "PLATFORM_ADMIN" : "USER",
-          dailyCredits: 4,
-          dailyCreditsResetAt: new Date(),
-          creditTransactions: {
-            create: { type: "DAILY_GRANT", amount: 4, balanceAfter: 4, note: "Welcome credits" },
-          },
-        },
+      await initializeNewUser(prisma, {
+        id: user.id,
+        platformAdmin: adminEmails().includes(email),
       });
 
       const invites = await prisma.teamInvite.findMany({

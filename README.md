@@ -14,8 +14,9 @@ server-side.
 - **Live progress** (queued → generating → ready) via polling; result page with player, download,
   “Generate variation”, “Use as start frame” (frame capture), and public share links (`/v/[id]`)
 - **Auth**: Google OAuth + email magic links (NextAuth.js v5, database sessions)
-- **Credits**: free daily allowance (lazy refresh, no cron needed), paid balance, atomic deduction
-  with automatic refund on failure, full audit trail (`CreditTransaction`)
+- **Credits**: 10-credit welcome bonus (sized so every model is affordable on day one) + free
+  daily allowance (lazy refresh, no cron needed), paid balance, atomic deduction with automatic
+  refund on failure, full audit trail (`CreditTransaction`)
 - **Billing**: Stripe subscriptions (Starter / Pro / Unlimited) + one-time credit packs, webhook
   fulfillment with idempotency, customer portal
 - **Storage**: completed videos are downloaded from fal and re-hosted on Cloudflare R2 (fal URLs are
@@ -80,6 +81,17 @@ npx prisma db push        # dev; use `prisma migrate deploy` in production
 npm run dev     # http://localhost:3000
 npm run build && npm start   # production
 ```
+
+### Smoke test: new-signup model access
+
+With the dev server running, verify a brand-new account can use every model:
+
+```bash
+node --env-file=.env scripts/smoke-signup-access.mjs
+```
+
+It creates a throwaway user through the real onboarding path, checks the starting balance covers
+every model's cheapest run, submits one generation per model, and confirms refunds — then cleans up.
 
 ## Roles & permissions
 
