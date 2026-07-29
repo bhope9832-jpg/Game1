@@ -1,0 +1,152 @@
+// VidForge database schema
+// Prisma + PostgreSQL. Works with Supabase, Neon, RDS, or any Postgres.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth (NextAuth.js) ----------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  // Billing & credits
+  credits            Int      @default(0) // paid / granted balance, never expires
+  dailyCredits       Int      @default(0) // free daily allowance, refreshed lazily
+  dailyCreditsResetAt DateTime @default(now())
+  plan               Plan     @default(FREE)
+  stripeCustomerId   String?  @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId      String?
+  planRenewsAt       DateTime?
+
+  isAdmin  Boolean @default(false)
+  isBanned Boolean @default(false)
+
+  accounts           Account[]
+  sessions           Session[]
+  generations        Generation[]
+  creditTransactions CreditTransaction[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Generations ----------
+
+enum GenerationStatus {
+  PENDING // accepted, queued at the provider
+  PROCESSING // provider is rendering
+  COMPLETED
+  FAILED
+}
+
+enum GenerationMode {
+  TEXT_TO_VIDEO
+  IMAGE_TO_VIDEO
+}
+
+model Generation {
+  id             String           @id @default(cuid())
+  userId         String
+  mode           GenerationMode
+  model          String // model id from lib/models.ts, e.g. "seedance-2.0"
+  falRequestId   String? // provider queue request id, used for polling
+  prompt         String           @db.Text
+  negativePrompt String?          @db.Text
+  inputImageUrl  String? // for image-to-video
+  outputVideoUrl String? // permanent URL (R2/S3) once re-hosted
+  providerVideoUrl String? // temporary provider URL, kept for debugging
+  status         GenerationStatus @default(PENDING)
+  error          String?          @db.Text
+  duration       Int // seconds
+  aspectRatio    String // "16:9" | "9:16" | "1:1" | "4:3" | "21:9"
+  resolution     String // "480p" | "720p"
+  seed           Int?
+  cameraMotion   String?
+  creditsUsed    Int
+  creditsRefunded Boolean         @default(false)
+  createdAt      DateTime         @default(now())
+  completedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+}
+
+// ---------- Credits & billing ----------
+
+enum Plan {
+  FREE
+  STARTER
+  PRO
+  UNLIMITED
+}
+
+enum CreditTransactionType {
+  DAILY_GRANT // free daily allowance refresh
+  PLAN_GRANT // monthly credits from a subscription
+  PACK_PURCHASE // one-time credit pack
+  GENERATION // deducted when a generation is submitted
+  REFUND // returned when a generation fails
+  ADMIN_ADJUSTMENT
+}
+
+model CreditTransaction {
+  id        String                @id @default(cuid())
+  userId    String
+  type      CreditTransactionType
+  amount    Int // positive = credit, negative = debit
+  balanceAfter Int
+  generationId String?
+  stripeEventId String? @unique // idempotency guard for webhook grants
+  note      String?
+  createdAt DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
