@@ -22,7 +22,12 @@ server-side.
   temporary); falls back to provider URLs in local dev
 - **Safety & abuse protection**: prompt moderation blocklist, per-user rate limiting, server-side
   validation of every option and price
-- **Admin dashboard** (`/admin`, gated by `ADMIN_EMAILS`): usage stats, users, recent generations
+- **Teams**: shared workspaces with a pooled credit balance, roles (OWNER / ADMIN / MEMBER),
+  email invites (auto-claimed on sign-up), member management, and a shared video feed
+- **RBAC** (`lib/rbac.ts`): three layers — platform admin → team role → ownership — enforced in
+  every API route, page, and server action
+- **Platform Admin dashboard** (`/admin`, bootstrapped by `ADMIN_EMAILS`): full access to all
+  users, teams, and generations; ban/unban, credit adjustments, promote/demote platform admins
 - Dark-first responsive UI (Tailwind, shadcn-style components), skeleton loaders, toasts, empty
   states, prompt inspiration gallery
 
@@ -75,6 +80,21 @@ npx prisma db push        # dev; use `prisma migrate deploy` in production
 npm run dev     # http://localhost:3000
 npm run build && npm start   # production
 ```
+
+## Roles & permissions
+
+| Action | Personal owner | Team MEMBER | Team ADMIN | Team OWNER | Platform Admin |
+| --- | --- | --- | --- | --- | --- |
+| Generate (personal wallet) | ✅ | — | — | — | ✅ |
+| Generate (team pool) | — | ✅ | ✅ | ✅ | ✅ |
+| View team videos | — | ✅ | ✅ | ✅ | ✅ (all teams) |
+| Delete a team video | creator only | own only | ✅ | ✅ | ✅ |
+| Invite members / top up pool | — | — | ✅ | ✅ | ✅ |
+| Change roles / rename / delete team | — | — | — | ✅ | ✅ |
+| Ban users, adjust any wallet, promote admins | — | — | — | — | ✅ |
+
+Platform admins are bootstrapped via `ADMIN_EMAILS` (applied at first sign-in) and can
+promote/demote others from `/admin`. All checks live in `lib/rbac.ts`.
 
 ## Architecture notes
 

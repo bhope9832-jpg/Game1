@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Clapperboard } from "lucide-react";
-import { auth, signOut } from "@/lib/auth";
+import { Clapperboard, ShieldCheck } from "lucide-react";
+import { currentUser, signOut } from "@/lib/auth";
+import { isPlatformAdmin } from "@/lib/rbac";
 import { Button } from "@/components/ui/button";
 import { CreditBadge } from "@/components/credit-badge";
 
 export async function Navbar() {
-  const session = await auth();
+  const user = await currentUser();
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
@@ -21,18 +22,31 @@ export async function Navbar() {
           <Link href="/pricing" className="transition-colors hover:text-foreground">
             Pricing
           </Link>
-          {session && (
-            <Link href="/dashboard" className="transition-colors hover:text-foreground">
-              Dashboard
+          {user && (
+            <>
+              <Link href="/dashboard" className="transition-colors hover:text-foreground">
+                Dashboard
+              </Link>
+              <Link href="/teams" className="transition-colors hover:text-foreground">
+                Teams
+              </Link>
+            </>
+          )}
+          {user && isPlatformAdmin(user) && (
+            <Link
+              href="/admin"
+              className="flex items-center gap-1 text-primary transition-colors hover:text-primary/80"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" /> Admin
             </Link>
           )}
         </nav>
         <div className="ml-auto flex items-center gap-3">
-          {session?.user ? (
+          {user ? (
             <>
               <CreditBadge />
               <span className="hidden text-sm text-muted-foreground sm:inline">
-                {session.user.name ?? session.user.email}
+                {user.name ?? user.email}
               </span>
               <form
                 action={async () => {

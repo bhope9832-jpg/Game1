@@ -21,6 +21,7 @@ interface Item {
   duration: number;
   creditsUsed: number;
   createdAt: string;
+  user?: { name: string | null; email: string };
 }
 
 const STATUS_BADGE = {
@@ -30,7 +31,14 @@ const STATUS_BADGE = {
   FAILED: "destructive",
 } as const;
 
-export function HistoryGallery() {
+interface HistoryGalleryProps {
+  /** Scope to a team's shared feed instead of the caller's own history. */
+  teamId?: string;
+  /** Show who created each video (useful in team feeds). */
+  showCreator?: boolean;
+}
+
+export function HistoryGallery({ teamId, showCreator }: HistoryGalleryProps = {}) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -40,6 +48,7 @@ export function HistoryGallery() {
   const load = useCallback(
     async (append = false, cursorArg: string | null = null) => {
       const params = new URLSearchParams();
+      if (teamId) params.set("teamId", teamId);
       if (statusFilter) params.set("status", statusFilter);
       if (modelFilter) params.set("model", modelFilter);
       if (cursorArg) params.set("cursor", cursorArg);
@@ -49,7 +58,7 @@ export function HistoryGallery() {
       setItems((prev) => (append && prev ? [...prev, ...data.items] : data.items));
       setCursor(data.nextCursor);
     },
-    [statusFilter, modelFilter],
+    [statusFilter, modelFilter, teamId],
   );
 
   useEffect(() => {
@@ -137,6 +146,11 @@ export function HistoryGallery() {
                 )}
                 <CardContent className="space-y-2 p-4">
                   <p className="line-clamp-2 text-sm">{item.prompt}</p>
+                  {showCreator && item.user && (
+                    <p className="text-xs text-muted-foreground">
+                      by {item.user.name ?? item.user.email}
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant={STATUS_BADGE[item.status]}>{item.status.toLowerCase()}</Badge>
                     <span>{MODELS.find((m) => m.id === item.model)?.name ?? item.model}</span>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { checkGeneration } from "@/lib/fal";
 import { persistVideo } from "@/lib/storage";
 import { refundCredits } from "@/lib/credits";
+import { canViewGeneration, canManageGeneration } from "@/lib/rbac";
 import type { GenerationModeId } from "@/lib/models";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { id } = await ctx.params;
   let gen = await prisma.generation.findUnique({ where: { id } });
-  if (!gen || gen.userId !== user.id) {
+  if (!gen || !(await canViewGeneration(user, gen))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -69,15 +70,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return NextResponse.json({ generation: gen });
 }
 
-/** Delete a generation from history (does not refund credits). */
+/**
+ * Delete a generation from history (does not refund credits).
+ * Allowed for the creator, team ADMIN/OWNER on team generations, and
+ * platform admins.
+ */
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await ctx.params;
   const gen = await prisma.generation.findUnique({ where: { id } });
-  if (!gen || gen.userId !== user.id) {
+  if (!gen || !(await canViewGeneration(user, gen))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!(await canManageGeneration(user, gen))) {
+    return NextResponse.json({ error: "Only the creator or a team admin can delete this" }, { status: 403 });
   }
   await prisma.generation.delete({ where: { id } });
   return NextResponse.json({ ok: true });

@@ -16,11 +16,23 @@ import { cn } from "@/lib/utils";
 
 const PROMPT_MAX = 2000;
 
+interface TeamOption {
+  id: string;
+  name: string;
+  credits: number;
+  role: string;
+}
+
 interface StudioProps {
   initialPrompt?: string;
 }
 
 export function Studio({ initialPrompt }: StudioProps) {
+  // Workspace context: "" = personal wallet, otherwise a team id whose shared
+  // pool is spent and whose members can all see the result.
+  const [workspace, setWorkspace] = useState("");
+  const [teams, setTeams] = useState<TeamOption[]>([]);
+  const [personalCredits, setPersonalCredits] = useState<number | null>(null);
   const [mode, setMode] = useState<GenerationModeId>("text-to-video");
   const [modelId, setModelId] = useState("seedance-2.0");
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
@@ -63,6 +75,29 @@ export function Studio({ initialPrompt }: StudioProps) {
 
   useEffect(() => () => {
     if (pollTimer.current) clearTimeout(pollTimer.current);
+  }, []);
+
+  // Load workspaces (personal balance + teams) and keep them fresh.
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/me");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+        setPersonalCredits(data.credits);
+        setTeams(data.teams ?? []);
+      } catch {
+        /* keep last known state */
+      }
+    };
+    load();
+    window.addEventListener("credits:changed", load);
+    return () => {
+      active = false;
+      window.removeEventListener("credits:changed", load);
+    };
   }, []);
 
   const poll = useCallback((id: string) => {
@@ -123,6 +158,7 @@ export function Studio({ initialPrompt }: StudioProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          teamId: workspace || undefined,
           mode,
           model: modelId,
           prompt: prompt.trim(),
@@ -169,6 +205,26 @@ export function Studio({ initialPrompt }: StudioProps) {
       {/* Controls */}
       <Card className="h-fit">
         <CardContent className="space-y-5 p-5">
+          {/* Workspace switcher */}
+          <div className="space-y-1.5">
+            <Label htmlFor="workspace">Workspace</Label>
+            <Select id="workspace" value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
+              <option value="">
+                Personal{personalCredits !== null ? ` — ${personalCredits} credits` : ""}
+              </option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} — {t.credits} pool credits
+                </option>
+              ))}
+            </Select>
+            {workspace && (
+              <p className="text-xs text-muted-foreground">
+                Spends the team pool; every team member can see the result.
+              </p>
+            )}
+          </div>
+
           {/* Mode tabs */}
           <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
             {(

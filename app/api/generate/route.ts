@@ -8,11 +8,14 @@ import { rateLimit } from "@/lib/rate-limit";
 import { refreshDailyCredits, deductCredits, totalBalance, InsufficientCreditsError } from "@/lib/credits";
 import { submitGeneration } from "@/lib/fal";
 import { refundCredits } from "@/lib/credits";
+import { requireTeamRole, authErrorResponse } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const bodySchema = z.object({
+  // Workspace context: omit for personal, set to spend a team's credit pool.
+  teamId: z.string().cuid().optional(),
   mode: z.enum(["text-to-video", "image-to-video"]),
   model: z.string().min(1),
   prompt: z.string().min(3).max(2000),
@@ -69,13 +72,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: moderation.reason }, { status: 422 });
   }
 
-  const refreshed = await refreshDailyCredits(user);
+  // Team context: any member (or a platform admin) may spend the team pool.
+  if (body.teamId) {
+    try {
+      await requireTeamRole(user, body.teamId, "MEMBER");
+    } catch (err) {
+      const authErr = authErrorResponse(err);
+      if (authErr) return NextResponse.json({ error: authErr.error }, { status: authErr.status });
+      throw err;
+    }
+  }
+
   const cost = creditCost(model, body.duration, body.resolution as Resolution);
-  if (totalBalance(refreshed) < cost) {
-    return NextResponse.json(
-      { error: `Not enough credits (need ${cost}). Upgrade or buy a credit pack.`, code: "INSUFFICIENT_CREDITS" },
-      { status: 402 },
-    );
+  if (body.teamId) {
+    const team = await prisma.team.findUnique({ where: { id: body.teamId } });
+    if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    if (team.credits < cost) {
+      return NextResponse.json(
+        { error: `The team pool has ${team.credits} credits but this needs ${cost}. Ask an owner to top it up.`, code: "INSUFFICIENT_CREDITS" },
+        { status: 402 },
+      );
+    }
+  } else {
+    const refreshed = await refreshDailyCredits(user);
+    if (totalBalance(refreshed) < cost) {
+      return NextResponse.json(
+        { error: `Not enough credits (need ${cost}). Upgrade or buy a credit pack.`, code: "INSUFFICIENT_CREDITS" },
+        { status: 402 },
+      );
+    }
   }
 
   // Create the record first so the deduction has an audit anchor. Credits are
@@ -84,6 +109,7 @@ export async function POST(req: Request) {
   const generation = await prisma.generation.create({
     data: {
       userId: user.id,
+      teamId: body.teamId,
       mode: mode === "text-to-video" ? "TEXT_TO_VIDEO" : "IMAGE_TO_VIDEO",
       model: model.id,
       prompt: body.prompt,
@@ -100,7 +126,7 @@ export async function POST(req: Request) {
   });
 
   try {
-    await deductCredits(user.id, cost, generation.id);
+    await deductCredits({ userId: user.id, teamId: body.teamId, amount: cost, generationId: generation.id });
   } catch (err) {
     await prisma.generation.delete({ where: { id: generation.id } });
     if (err instanceof InsufficientCreditsError) {

@@ -3,10 +3,14 @@ import { planConfig } from "@/lib/plans";
 import type { User } from "@prisma/client";
 
 /**
- * Lazily refresh the free daily allowance. Called before any balance check so
- * we never need a cron job: if a UTC day has passed since the last reset, top
- * the daily bucket back up to the plan's allowance.
+ * Credit accounting for two wallet kinds:
+ *  - Personal: `User.credits` (paid, never expires) + `User.dailyCredits`
+ *    (free allowance, refreshed lazily each UTC day).
+ *  - Team: `Team.credits`, a shared pool spent by team-context generations.
+ * Every movement writes a CreditTransaction (userId = acting user, teamId set
+ * when a team pool was affected).
  */
+
 export async function refreshDailyCredits(user: User): Promise<User> {
   const allowance = planConfig(user.plan).dailyFreeCredits;
   const last = user.dailyCreditsResetAt;
@@ -39,21 +43,52 @@ export function totalBalance(user: User): number {
   return user.credits + user.dailyCredits;
 }
 
+export class InsufficientCreditsError extends Error {
+  constructor() {
+    super("Insufficient credits");
+    this.name = "InsufficientCreditsError";
+  }
+}
+
 /**
- * Atomically deduct credits for a generation, spending the free daily bucket
- * first. Throws if the balance is insufficient (guarded by a conditional
- * update so concurrent requests can't double-spend).
+ * Atomically deduct credits for a generation.
+ * Personal context spends the free daily bucket first, then paid credits.
+ * Team context spends the team's shared pool only. Conditional updates inside
+ * the transaction guard against concurrent double-spends.
  */
-export async function deductCredits(userId: string, amount: number, generationId: string) {
+export async function deductCredits(opts: {
+  userId: string;
+  teamId?: string | null;
+  amount: number;
+  generationId: string;
+}) {
+  const { userId, teamId, amount, generationId } = opts;
   return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
-    if (user.credits + user.dailyCredits < amount) {
-      throw new InsufficientCreditsError();
+    if (teamId) {
+      const updated = await tx.team.updateMany({
+        where: { id: teamId, credits: { gte: amount } },
+        data: { credits: { decrement: amount } },
+      });
+      if (updated.count === 0) throw new InsufficientCreditsError();
+      const team = await tx.team.findUniqueOrThrow({ where: { id: teamId } });
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          teamId,
+          type: "GENERATION",
+          amount: -amount,
+          balanceAfter: team.credits,
+          generationId,
+        },
+      });
+      return;
     }
+
+    const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+    if (user.credits + user.dailyCredits < amount) throw new InsufficientCreditsError();
     const fromDaily = Math.min(user.dailyCredits, amount);
     const fromPaid = amount - fromDaily;
     const updated = await tx.user.updateMany({
-      // Conditions re-checked inside the transaction guard against races.
       where: { id: userId, dailyCredits: { gte: fromDaily }, credits: { gte: fromPaid } },
       data: { dailyCredits: { decrement: fromDaily }, credits: { decrement: fromPaid } },
     });
@@ -70,12 +105,35 @@ export async function deductCredits(userId: string, amount: number, generationId
   });
 }
 
-/** Return credits when a generation fails. Idempotent per generation. */
+/**
+ * Return credits when a generation fails, to whichever wallet paid for it.
+ * Idempotent per generation.
+ */
 export async function refundCredits(generationId: string) {
   return prisma.$transaction(async (tx) => {
     const gen = await tx.generation.findUniqueOrThrow({ where: { id: generationId } });
     if (gen.creditsRefunded || gen.creditsUsed <= 0) return;
     await tx.generation.update({ where: { id: gen.id }, data: { creditsRefunded: true } });
+
+    if (gen.teamId) {
+      const team = await tx.team.update({
+        where: { id: gen.teamId },
+        data: { credits: { increment: gen.creditsUsed } },
+      });
+      await tx.creditTransaction.create({
+        data: {
+          userId: gen.userId,
+          teamId: gen.teamId,
+          type: "REFUND",
+          amount: gen.creditsUsed,
+          balanceAfter: team.credits,
+          generationId: gen.id,
+          note: "Generation failed",
+        },
+      });
+      return;
+    }
+
     const user = await tx.user.update({
       where: { id: gen.userId },
       data: { credits: { increment: gen.creditsUsed } },
@@ -93,9 +151,13 @@ export async function refundCredits(generationId: string) {
   });
 }
 
-/** Grant credits from billing events. Idempotent via stripeEventId. */
+/**
+ * Grant credits to a personal wallet or a team pool (billing events, admin
+ * adjustments). Idempotent via stripeEventId when provided.
+ */
 export async function grantCredits(opts: {
-  userId: string;
+  userId: string; // acting/receiving user (audit anchor for team grants)
+  teamId?: string | null;
   amount: number;
   type: "PLAN_GRANT" | "PACK_PURCHASE" | "ADMIN_ADJUSTMENT";
   stripeEventId?: string;
@@ -108,16 +170,28 @@ export async function grantCredits(opts: {
       });
       if (existing) return; // webhook retry — already applied
     }
-    const user = await tx.user.update({
-      where: { id: opts.userId },
-      data: { credits: { increment: opts.amount } },
-    });
+
+    let balanceAfter: number;
+    if (opts.teamId) {
+      const team = await tx.team.update({
+        where: { id: opts.teamId },
+        data: { credits: { increment: opts.amount } },
+      });
+      balanceAfter = team.credits;
+    } else {
+      const user = await tx.user.update({
+        where: { id: opts.userId },
+        data: { credits: { increment: opts.amount } },
+      });
+      balanceAfter = user.credits + user.dailyCredits;
+    }
     await tx.creditTransaction.create({
       data: {
         userId: opts.userId,
+        teamId: opts.teamId ?? null,
         type: opts.type,
         amount: opts.amount,
-        balanceAfter: user.credits + user.dailyCredits,
+        balanceAfter,
         stripeEventId: opts.stripeEventId,
         note: opts.note,
       },
@@ -125,9 +199,42 @@ export async function grantCredits(opts: {
   });
 }
 
-export class InsufficientCreditsError extends Error {
-  constructor() {
-    super("Insufficient credits");
-    this.name = "InsufficientCreditsError";
-  }
+/**
+ * Move paid credits from a user's personal wallet into a team pool (how teams
+ * are funded in v1 — daily free credits are not transferable).
+ */
+export async function transferCreditsToTeam(userId: string, teamId: string, amount: number) {
+  if (amount <= 0) throw new Error("Amount must be positive");
+  return prisma.$transaction(async (tx) => {
+    const debited = await tx.user.updateMany({
+      where: { id: userId, credits: { gte: amount } },
+      data: { credits: { decrement: amount } },
+    });
+    if (debited.count === 0) throw new InsufficientCreditsError();
+    const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+    const team = await tx.team.update({
+      where: { id: teamId },
+      data: { credits: { increment: amount } },
+    });
+    // Two audit rows: the debit on the personal wallet, the credit on the pool.
+    await tx.creditTransaction.create({
+      data: {
+        userId,
+        type: "TEAM_TRANSFER",
+        amount: -amount,
+        balanceAfter: user.credits + user.dailyCredits,
+        note: `Transfer to team ${team.name}`,
+      },
+    });
+    await tx.creditTransaction.create({
+      data: {
+        userId,
+        teamId,
+        type: "TEAM_TRANSFER",
+        amount,
+        balanceAfter: team.credits,
+        note: "Transfer from personal wallet",
+      },
+    });
+  });
 }

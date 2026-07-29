@@ -24,14 +24,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   events: {
-    // Give brand-new users their first daily allowance and flag admins.
+    // Give brand-new users their first daily allowance, flag platform admins,
+    // and claim any pending team invites addressed to their email.
     async createUser({ user }) {
       if (!user.id || !user.email) return;
-      const isAdmin = adminEmails().includes(user.email.toLowerCase());
+      const email = user.email.toLowerCase();
+      const isPlatformAdmin = adminEmails().includes(email);
       await prisma.user.update({
         where: { id: user.id },
         data: {
-          isAdmin,
+          platformRole: isPlatformAdmin ? "PLATFORM_ADMIN" : "USER",
           dailyCredits: 4,
           dailyCreditsResetAt: new Date(),
           creditTransactions: {
@@ -39,6 +41,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           },
         },
       });
+
+      const invites = await prisma.teamInvite.findMany({
+        where: { email, expiresAt: { gt: new Date() } },
+      });
+      for (const invite of invites) {
+        await prisma.$transaction([
+          prisma.teamMembership.upsert({
+            where: { teamId_userId: { teamId: invite.teamId, userId: user.id } },
+            create: { teamId: invite.teamId, userId: user.id, role: invite.role },
+            update: {},
+          }),
+          prisma.teamInvite.delete({ where: { id: invite.id } }),
+        ]);
+      }
     },
   },
   callbacks: {
