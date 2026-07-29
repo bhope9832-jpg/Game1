@@ -12,8 +12,8 @@ export default async function PricingPage() {
       <div className="mb-10 text-center">
         <h1 className="text-3xl font-semibold">Simple, credit-based pricing</h1>
         <p className="mt-3 text-muted-foreground">
-          One credit ≈ one short 480p video. Longer clips and 720p cost more. Failed generations
-          are always refunded.
+          Credits are priced per model and clip length — the studio shows the exact cost before
+          you generate. Failed generations are always refunded.
         </p>
       </div>
       <PricingCards currentPlan={user?.plan ?? "FREE"} signedIn={Boolean(user)} />

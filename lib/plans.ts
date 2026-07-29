@@ -10,6 +10,10 @@ export interface PlanConfig {
   features: string[];
 }
 
+// Every plan and pack sells credits at exactly CREDIT_VALUE_USD ($0.05), so
+// the per-generation margin in lib/models.ts holds on every purchase path.
+// (Free/welcome/daily credits are deliberate marketing spend — they cost real
+// provider dollars when redeemed and earn nothing.)
 export const PLANS: PlanConfig[] = [
   {
     id: "FREE",
@@ -19,44 +23,44 @@ export const PLANS: PlanConfig[] = [
     dailyFreeCredits: 4,
     stripePriceEnv: null,
     features: [
-      "10 welcome credits — try every model",
+      "25 welcome credits — try every model",
       "4 free credits every day",
       "All models included",
-      "480p & 720p",
+      "Personal use",
     ],
   },
   {
     id: "STARTER",
     name: "Starter",
     priceMonthly: 12,
-    monthlyCredits: 200,
+    monthlyCredits: 240,
     dailyFreeCredits: 4,
     stripePriceEnv: "STRIPE_PRICE_STARTER",
-    features: ["200 credits / month", "Priority queue", "Generation history forever", "Commercial use"],
+    features: ["240 credits / month", "≈ 7 Seedance videos or 30 Kling videos", "Generation history forever", "Commercial use"],
   },
   {
     id: "PRO",
     name: "Pro",
     priceMonthly: 39,
-    monthlyCredits: 800,
+    monthlyCredits: 780,
     dailyFreeCredits: 8,
     stripePriceEnv: "STRIPE_PRICE_PRO",
-    features: ["800 credits / month", "Priority queue", "Early access to new models", "Commercial use"],
+    features: ["780 credits / month", "≈ 22 Seedance videos", "Priority queue", "Commercial use"],
   },
   {
     id: "UNLIMITED",
-    name: "Unlimited",
+    name: "Studio",
     priceMonthly: 99,
-    monthlyCredits: 3000,
+    monthlyCredits: 1980,
     dailyFreeCredits: 20,
     stripePriceEnv: "STRIPE_PRICE_UNLIMITED",
-    features: ["3000 credits / month", "Highest priority", "Everything in Pro", "Dedicated support"],
+    features: ["1980 credits / month", "≈ 58 Seedance videos", "Highest priority", "Dedicated support"],
   },
 ];
 
 export const CREDIT_PACKS = [
-  { id: "pack-small", name: "50 credits", credits: 50, priceUsd: 8, stripePriceEnv: "STRIPE_PRICE_PACK_SMALL" },
-  { id: "pack-large", name: "250 credits", credits: 250, priceUsd: 29, stripePriceEnv: "STRIPE_PRICE_PACK_LARGE" },
+  { id: "pack-small", name: "160 credits", credits: 160, priceUsd: 8, stripePriceEnv: "STRIPE_PRICE_PACK_SMALL" },
+  { id: "pack-large", name: "580 credits", credits: 580, priceUsd: 29, stripePriceEnv: "STRIPE_PRICE_PACK_LARGE" },
 ] as const;
 
 export function planConfig(plan: Plan): PlanConfig {

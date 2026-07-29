@@ -25,10 +25,24 @@ export interface VideoModel {
   supportsSeed: boolean;
   supportsCameraMotion: boolean;
   cameraMotions?: string[];
-  /** base credit cost for the shortest duration at the lowest resolution */
-  baseCredits: number;
+  /**
+   * What fal.ai bills US per second of output at each resolution (USD).
+   * NEVER exposed to clients — used only to derive credit prices.
+   * Source: fal.ai model pages, July 2026. Re-verify before deploy and when
+   * fal announces price changes; margins depend on these being current.
+   */
+  costPerSecondUsd: Partial<Record<Resolution, number>>;
   badge?: "recommended" | "fast" | "new";
 }
+
+/**
+ * Pricing policy: every purchase path (plans AND packs) sells credits at a
+ * uniform CREDIT_VALUE_USD, and every generation is priced at provider cost
+ * plus a fixed MARGIN_PER_GENERATION_USD. Rounding is always up, so the
+ * realized margin per generation is >= the target on every model.
+ */
+export const CREDIT_VALUE_USD = 0.05;
+export const MARGIN_PER_GENERATION_USD = 0.15;
 
 export const MODELS: VideoModel[] = [
   {
@@ -42,12 +56,14 @@ export const MODELS: VideoModel[] = [
     },
     durations: [4, 5, 8, 10, 15],
     aspectRatios: ["16:9", "9:16", "1:1", "4:3", "21:9"],
-    resolutions: ["480p", "720p"],
+    // 480p removed until fal publishes a 480p rate for Seedance 2.0 —
+    // pricing an unverified tier would risk selling below cost.
+    resolutions: ["720p"],
     supportsNegativePrompt: true,
     supportsSeed: true,
     supportsCameraMotion: true,
     cameraMotions: ["none", "zoom_in", "zoom_out", "pan_left", "pan_right", "tilt_up", "tilt_down", "orbit"],
-    baseCredits: 2,
+    costPerSecondUsd: { "720p": 0.3034 },
     badge: "recommended",
   },
   {
@@ -61,12 +77,12 @@ export const MODELS: VideoModel[] = [
     },
     durations: [4, 5, 8, 10],
     aspectRatios: ["16:9", "9:16", "1:1", "4:3", "21:9"],
-    resolutions: ["480p", "720p"],
+    resolutions: ["720p"],
     supportsNegativePrompt: true,
     supportsSeed: true,
     supportsCameraMotion: true,
     cameraMotions: ["none", "zoom_in", "zoom_out", "pan_left", "pan_right", "tilt_up", "tilt_down", "orbit"],
-    baseCredits: 1,
+    costPerSecondUsd: { "720p": 0.2419 },
     badge: "fast",
   },
   {
@@ -84,7 +100,8 @@ export const MODELS: VideoModel[] = [
     supportsNegativePrompt: true,
     supportsSeed: false,
     supportsCameraMotion: false,
-    baseCredits: 2,
+    // fal bills Kling 2.1 Standard ~$0.25 per 5s clip → $0.05/s equivalent.
+    costPerSecondUsd: { "720p": 0.05 },
   },
   {
     id: "luma-dream-machine",
@@ -101,7 +118,7 @@ export const MODELS: VideoModel[] = [
     supportsNegativePrompt: false,
     supportsSeed: false,
     supportsCameraMotion: false,
-    baseCredits: 2,
+    costPerSecondUsd: { "720p": 0.08 },
   },
   {
     id: "minimax-hailuo-02",
@@ -118,7 +135,7 @@ export const MODELS: VideoModel[] = [
     supportsNegativePrompt: false,
     supportsSeed: false,
     supportsCameraMotion: false,
-    baseCredits: 2,
+    costPerSecondUsd: { "720p": 0.045 },
   },
 ];
 
@@ -127,11 +144,16 @@ export function getModel(id: string): VideoModel | undefined {
 }
 
 /**
- * Credit price for a run. Longer clips and higher resolutions cost more:
- * base × duration multiplier (per started 5s block) × resolution multiplier.
+ * Credit price for a run: provider cost plus the fixed per-generation margin,
+ * converted to credits and rounded up. At CREDIT_VALUE_USD per credit this
+ * guarantees the site earns >= MARGIN_PER_GENERATION_USD on every successful
+ * generation, on every model.
  */
 export function creditCost(model: VideoModel, duration: number, resolution: Resolution): number {
-  const durationBlocks = Math.max(1, Math.ceil(duration / 5));
-  const resolutionMultiplier = resolution === "720p" ? 2 : 1;
-  return model.baseCredits * durationBlocks * resolutionMultiplier;
+  const costPerSecond = model.costPerSecondUsd[resolution];
+  if (costPerSecond === undefined) {
+    throw new Error(`${model.id} has no cost configured for ${resolution}`);
+  }
+  const providerCost = costPerSecond * duration;
+  return Math.ceil((providerCost + MARGIN_PER_GENERATION_USD) / CREDIT_VALUE_USD);
 }

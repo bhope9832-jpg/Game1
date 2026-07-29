@@ -10,7 +10,7 @@ server-side.
 - **Text-to-Video & Image-to-Video** studio with drag-and-drop start frames
 - **Model selector** — Seedance 2.0 (+ Fast variant), Kling 2.1, Luma Dream Machine, MiniMax Hailuo 02
 - Full controls: prompt with character count, negative prompt, duration (4–15s), aspect ratio
-  (16:9 / 9:16 / 1:1 / 4:3 / 21:9), resolution (480p / 720p), seed, camera motion
+  (16:9 / 9:16 / 1:1 / 4:3 / 21:9), resolution, seed, camera motion
 - **Live progress** (queued → generating → ready) via polling; result page with player, download,
   “Generate variation”, “Use as start frame” (frame capture), and public share links (`/v/[id]`)
 - **Auth**: Google OAuth + email magic links (NextAuth.js v5, database sessions)
@@ -110,9 +110,12 @@ promote/demote others from `/admin`. All checks live in `lib/rbac.ts`.
 
 ## Architecture notes
 
-- **Model catalog** lives in `lib/models.ts` — endpoints, capabilities, and credit pricing per
-  model. Verify fal endpoint slugs against https://fal.ai/models before deploying; adding a model
-  is a one-file change.
+- **Model catalog** lives in `lib/models.ts` — endpoints, capabilities, and pricing per model.
+  Credit prices are DERIVED: each model records fal's cost per second (`costPerSecondUsd`), and
+  `creditCost()` charges provider cost + a fixed margin (`MARGIN_PER_GENERATION_USD`, $0.15)
+  converted at `CREDIT_VALUE_USD` ($0.05/credit, uniform across all plans and packs), rounded up —
+  so the site earns at least the target margin on every generation of every model. Keep
+  `costPerSecondUsd` in sync with https://fal.ai/models pricing; adding a model is a one-file change.
 - **Generation flow**: `POST /api/generate` validates options against the catalog, moderates the
   prompt, reserves credits atomically, then submits to the fal queue. The client polls
   `GET /api/generations/[id]`, which advances state, re-hosts the finished video to R2, and refunds

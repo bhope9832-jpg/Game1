@@ -25,7 +25,8 @@ export async function GET() {
       supportsNegativePrompt: m.supportsNegativePrompt,
       supportsSeed: m.supportsSeed,
       supportsCameraMotion: m.supportsCameraMotion,
-      baseCredits: m.baseCredits,
+      // Note: costPerSecondUsd (our provider cost) is intentionally NOT
+      // exposed — clients only ever see credit prices.
       minCost,
       badge: m.badge ?? null,
     };
