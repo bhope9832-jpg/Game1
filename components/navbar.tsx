@@ -4,48 +4,53 @@ import { currentUser, signOut } from "@/lib/auth";
 import { isPlatformAdmin } from "@/lib/rbac";
 import { Button } from "@/components/ui/button";
 import { CreditBadge } from "@/components/credit-badge";
+import { MobileNav } from "@/components/mobile-nav";
 
 export async function Navbar() {
   const user = await currentUser();
 
+  const links = [
+    { href: "/studio", label: "Studio" },
+    { href: "/pricing", label: "Pricing" },
+    ...(user
+      ? [
+          { href: "/dashboard", label: "Dashboard" },
+          { href: "/teams", label: "Teams" },
+        ]
+      : []),
+    ...(user && isPlatformAdmin(user) ? [{ href: "/admin", label: "Admin", accent: true }] : []),
+  ];
+
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4 sm:px-6">
+      <div className="relative mx-auto flex h-14 max-w-7xl items-center gap-4 px-4 sm:gap-6 sm:px-6">
+        <MobileNav links={links} />
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <Clapperboard className="h-5 w-5 text-primary" />
           VidForge
         </Link>
-        <nav className="flex items-center gap-4 text-sm text-muted-foreground">
-          <Link href="/studio" className="transition-colors hover:text-foreground">
-            Studio
-          </Link>
-          <Link href="/pricing" className="transition-colors hover:text-foreground">
-            Pricing
-          </Link>
-          {user && (
-            <>
-              <Link href="/dashboard" className="transition-colors hover:text-foreground">
-                Dashboard
+        <nav className="hidden items-center gap-4 text-sm text-muted-foreground sm:flex">
+          {links.map((l) =>
+            l.accent ? (
+              <Link
+                key={l.href}
+                href={l.href}
+                className="flex items-center gap-1 text-primary transition-colors hover:text-primary/80"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" /> {l.label}
               </Link>
-              <Link href="/teams" className="transition-colors hover:text-foreground">
-                Teams
+            ) : (
+              <Link key={l.href} href={l.href} className="transition-colors hover:text-foreground">
+                {l.label}
               </Link>
-            </>
-          )}
-          {user && isPlatformAdmin(user) && (
-            <Link
-              href="/admin"
-              className="flex items-center gap-1 text-primary transition-colors hover:text-primary/80"
-            >
-              <ShieldCheck className="h-3.5 w-3.5" /> Admin
-            </Link>
+            ),
           )}
         </nav>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
               <CreditBadge />
-              <span className="hidden text-sm text-muted-foreground sm:inline">
+              <span className="hidden text-sm text-muted-foreground md:inline">
                 {user.name ?? user.email}
               </span>
               <form

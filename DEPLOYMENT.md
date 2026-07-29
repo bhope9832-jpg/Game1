@@ -1,5 +1,15 @@
 # Deploying VidForge to Vercel
 
+**Fastest path — import the repo directly:**
+[Import into Vercel](https://vercel.com/new/import?s=https%3A%2F%2Fgithub.com%2Fbhope9832-jpg%2FGame1)
+→ select branch `claude/ai-video-generation-saas-pzo7og` → paste the env vars
+from step 4 → Deploy. (Merging the branch to `main` first is recommended so
+Vercel auto-deploys future pushes.)
+
+The app is fully mobile-ready: responsive layouts throughout, and it installs
+to a phone home screen as an app (PWA manifest + icons) — on iPhone use
+Share → "Add to Home Screen", on Android Chrome "Install app".
+
 Follow these steps top to bottom. Steps 1–5 get you a live site you can sign
 into (~15 minutes); steps 6–8 turn on generation, billing, and permanent video
 storage and can be done later.
