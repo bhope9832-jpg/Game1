@@ -22,3 +22,4 @@ prisma/*.db
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+public/demo/
