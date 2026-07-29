@@ -12,20 +12,20 @@ export interface PlanConfig {
 
 // Every plan and pack sells credits at exactly CREDIT_VALUE_USD ($0.05), so
 // the per-generation margin in lib/models.ts holds on every purchase path.
-// (Free/welcome/daily credits are deliberate marketing spend — they cost real
-// provider dollars when redeemed and earn nothing.)
+// No free generation credits anywhere — every credit in circulation was paid
+// for, so provider spend is always covered by revenue.
 export const PLANS: PlanConfig[] = [
   {
     id: "FREE",
     name: "Free",
     priceMonthly: 0,
     monthlyCredits: 0,
-    dailyFreeCredits: 4,
+    dailyFreeCredits: 0,
     stripePriceEnv: null,
     features: [
-      "25 welcome credits — try every model",
-      "4 free credits every day",
-      "All models included",
+      "Browse every model with exact pricing",
+      "Pay as you go with credit packs",
+      "Generation history",
       "Personal use",
     ],
   },
@@ -34,7 +34,7 @@ export const PLANS: PlanConfig[] = [
     name: "Starter",
     priceMonthly: 12,
     monthlyCredits: 240,
-    dailyFreeCredits: 4,
+    dailyFreeCredits: 0,
     stripePriceEnv: "STRIPE_PRICE_STARTER",
     features: ["240 credits / month", "≈ 7 Seedance videos or 30 Kling videos", "Generation history forever", "Commercial use"],
   },
@@ -43,7 +43,7 @@ export const PLANS: PlanConfig[] = [
     name: "Pro",
     priceMonthly: 39,
     monthlyCredits: 780,
-    dailyFreeCredits: 8,
+    dailyFreeCredits: 0,
     stripePriceEnv: "STRIPE_PRICE_PRO",
     features: ["780 credits / month", "≈ 22 Seedance videos", "Priority queue", "Commercial use"],
   },
@@ -52,7 +52,7 @@ export const PLANS: PlanConfig[] = [
     name: "Studio",
     priceMonthly: 99,
     monthlyCredits: 1980,
-    dailyFreeCredits: 20,
+    dailyFreeCredits: 0,
     stripePriceEnv: "STRIPE_PRICE_UNLIMITED",
     features: ["1980 credits / month", "≈ 58 Seedance videos", "Highest priority", "Dedicated support"],
   },

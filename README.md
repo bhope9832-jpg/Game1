@@ -14,9 +14,10 @@ server-side.
 - **Live progress** (queued → generating → ready) via polling; result page with player, download,
   “Generate variation”, “Use as start frame” (frame capture), and public share links (`/v/[id]`)
 - **Auth**: Google OAuth + email magic links (NextAuth.js v5, database sessions)
-- **Credits**: 10-credit welcome bonus (sized so every model is affordable on day one) + free
-  daily allowance (lazy refresh, no cron needed), paid balance, atomic deduction with automatic
-  refund on failure, full audit trail (`CreditTransaction`)
+- **Credits**: purchased-only — no free generation credits, so every credit in circulation is
+  revenue-backed. Atomic deduction with automatic refund on failure, full audit trail
+  (`CreditTransaction`). (A welcome/daily promo can be re-enabled via `lib/onboarding.js` and
+  plan `dailyFreeCredits`.)
 - **Billing**: Stripe subscriptions (Starter / Pro / Unlimited) + one-time credit packs, webhook
   fulfillment with idempotency, customer portal
 - **Storage**: completed videos are downloaded from fal and re-hosted on Cloudflare R2 (fal URLs are
@@ -82,16 +83,17 @@ npm run dev     # http://localhost:3000
 npm run build && npm start   # production
 ```
 
-### Smoke test: new-signup model access
+### Smoke test: signup & model-access policy
 
-With the dev server running, verify a brand-new account can use every model:
+With the dev server running:
 
 ```bash
 node --env-file=.env scripts/smoke-signup-access.mjs
 ```
 
-It creates a throwaway user through the real onboarding path, checks the starting balance covers
-every model's cheapest run, submits one generation per model, and confirms refunds — then cleans up.
+It creates a throwaway user through the real onboarding path and verifies the policy end to end:
+zero starting credits, full catalog visible with pricing, every generation rejected until credits
+are purchased, every model accessible after purchase, and refunds on failure — then cleans up.
 
 ## Roles & permissions
 

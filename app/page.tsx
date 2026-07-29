@@ -30,7 +30,7 @@ export default function LandingPage() {
         <div className="mt-8 flex gap-3">
           <Button size="lg">
             <Link href="/studio" className="flex items-center gap-2">
-              Start creating free <ArrowRight className="h-4 w-4" />
+              Start creating <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
           <Button size="lg" variant="outline">
@@ -38,7 +38,7 @@ export default function LandingPage() {
           </Button>
         </div>
         <p className="mt-4 text-sm text-muted-foreground">
-          Free credits every day · No credit card required
+          No API keys, no setup — pay only for what you generate
         </p>
       </section>
 

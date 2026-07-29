@@ -34,7 +34,7 @@ export default async function SharePage(props: { params: Promise<{ id: string }>
             Generated with {modelName} on VidForge
           </p>
           <Button>
-            <Link href="/studio">Create your own — free credits daily</Link>
+            <Link href="/studio">Create your own on VidForge</Link>
           </Button>
         </CardContent>
       </Card>

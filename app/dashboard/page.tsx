@@ -63,7 +63,7 @@ export default async function DashboardPage() {
             <p className="mt-1 text-xs text-muted-foreground">
               {user.planRenewsAt
                 ? `Renews ${user.planRenewsAt.toLocaleDateString()}`
-                : `${plan.dailyFreeCredits} free credits per day`}
+                : "Pay as you go"}
             </p>
           </CardContent>
         </Card>
