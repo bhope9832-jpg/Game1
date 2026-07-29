@@ -2,13 +2,19 @@ import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isPlatformAdmin } from "@/lib/rbac";
+import { isPlatformAdmin, hasUnlimitedAccess } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
-import { toggleBan, togglePlatformRole, adjustUserCredits, adjustTeamCredits } from "./actions";
+import {
+  toggleBan,
+  togglePlatformRole,
+  toggleUnlimited,
+  adjustUserCredits,
+  adjustTeamCredits,
+} from "./actions";
 
 export const metadata = { title: "Platform Admin" };
 export const dynamic = "force-dynamic";
@@ -117,7 +123,13 @@ export default async function AdminPage() {
                     </Badge>
                   </td>
                   <td className="px-6 py-2.5">{u.plan}</td>
-                  <td className="px-6 py-2.5">{u.credits + u.dailyCredits}</td>
+                  <td className="px-6 py-2.5">
+                    {hasUnlimitedAccess(u) ? (
+                      <Badge>∞ unlimited</Badge>
+                    ) : (
+                      u.credits + u.dailyCredits
+                    )}
+                  </td>
                   <td className="px-6 py-2.5 text-muted-foreground">{formatDate(u.createdAt)}</td>
                   <td className="px-6 py-2.5">
                     <div className="flex items-center gap-2">
@@ -145,6 +157,12 @@ export default async function AdminPage() {
                             <input type="hidden" name="userId" value={u.id} />
                             <Button variant="ghost" size="sm" type="submit">
                               {u.platformRole === "PLATFORM_ADMIN" ? "Demote" : "Make admin"}
+                            </Button>
+                          </form>
+                          <form action={toggleUnlimited}>
+                            <input type="hidden" name="userId" value={u.id} />
+                            <Button variant="ghost" size="sm" type="submit">
+                              {u.unlimitedAccess ? "Revoke unlimited" : "Grant unlimited"}
                             </Button>
                           </form>
                         </>

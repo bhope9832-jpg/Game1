@@ -38,6 +38,21 @@ export function assertPlatformAdmin(user: Pick<User, "platformRole">): void {
   }
 }
 
+/**
+ * Complimentary unlimited access: every model, zero credit charges.
+ * Granted either by the UNLIMITED_EMAILS env allowlist (checked live, so it
+ * applies to accounts that signed up before the var was set) or by the
+ * per-user flag a platform admin can toggle from /admin.
+ */
+export function hasUnlimitedAccess(user: Pick<User, "email" | "unlimitedAccess">): boolean {
+  if (user.unlimitedAccess) return true;
+  return (process.env.UNLIMITED_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(user.email.toLowerCase());
+}
+
 // ---------- Team layer ----------
 
 const ROLE_WEIGHT: Record<TeamRole, number> = { MEMBER: 1, ADMIN: 2, OWNER: 3 };

@@ -8,7 +8,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { refreshDailyCredits, deductCredits, totalBalance, InsufficientCreditsError } from "@/lib/credits";
 import { submitGeneration } from "@/lib/fal";
 import { refundCredits } from "@/lib/credits";
-import { requireTeamRole, authErrorResponse } from "@/lib/rbac";
+import { requireTeamRole, authErrorResponse, hasUnlimitedAccess } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -83,23 +83,27 @@ export async function POST(req: Request) {
     }
   }
 
-  const cost = creditCost(model, body.duration, body.resolution as Resolution);
-  if (body.teamId) {
-    const team = await prisma.team.findUnique({ where: { id: body.teamId } });
-    if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
-    if (team.credits < cost) {
-      return NextResponse.json(
-        { error: `The team pool has ${team.credits} credits but this needs ${cost}. Ask an owner to top it up.`, code: "INSUFFICIENT_CREDITS" },
-        { status: 402 },
-      );
-    }
-  } else {
-    const refreshed = await refreshDailyCredits(user);
-    if (totalBalance(refreshed) < cost) {
-      return NextResponse.json(
-        { error: `Not enough credits (need ${cost}). Upgrade or buy a credit pack.`, code: "INSUFFICIENT_CREDITS" },
-        { status: 402 },
-      );
+  // Unlimited accounts generate free of charge in any workspace.
+  const unlimited = hasUnlimitedAccess(user);
+  const cost = unlimited ? 0 : creditCost(model, body.duration, body.resolution as Resolution);
+  if (!unlimited) {
+    if (body.teamId) {
+      const team = await prisma.team.findUnique({ where: { id: body.teamId } });
+      if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+      if (team.credits < cost) {
+        return NextResponse.json(
+          { error: `The team pool has ${team.credits} credits but this needs ${cost}. Ask an owner to top it up.`, code: "INSUFFICIENT_CREDITS" },
+          { status: 402 },
+        );
+      }
+    } else {
+      const refreshed = await refreshDailyCredits(user);
+      if (totalBalance(refreshed) < cost) {
+        return NextResponse.json(
+          { error: `Not enough credits (need ${cost}). Upgrade or buy a credit pack.`, code: "INSUFFICIENT_CREDITS" },
+          { status: 402 },
+        );
+      }
     }
   }
 
@@ -125,14 +129,16 @@ export async function POST(req: Request) {
     },
   });
 
-  try {
-    await deductCredits({ userId: user.id, teamId: body.teamId, amount: cost, generationId: generation.id });
-  } catch (err) {
-    await prisma.generation.delete({ where: { id: generation.id } });
-    if (err instanceof InsufficientCreditsError) {
-      return NextResponse.json({ error: "Not enough credits", code: "INSUFFICIENT_CREDITS" }, { status: 402 });
+  if (!unlimited) {
+    try {
+      await deductCredits({ userId: user.id, teamId: body.teamId, amount: cost, generationId: generation.id });
+    } catch (err) {
+      await prisma.generation.delete({ where: { id: generation.id } });
+      if (err instanceof InsufficientCreditsError) {
+        return NextResponse.json({ error: "Not enough credits", code: "INSUFFICIENT_CREDITS" }, { status: 402 });
+      }
+      throw err;
     }
-    throw err;
   }
 
   try {

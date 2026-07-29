@@ -33,6 +33,7 @@ export function Studio({ initialPrompt }: StudioProps) {
   const [workspace, setWorkspace] = useState("");
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [personalCredits, setPersonalCredits] = useState<number | null>(null);
+  const [unlimited, setUnlimited] = useState(false);
   const [mode, setMode] = useState<GenerationModeId>("text-to-video");
   const [modelId, setModelId] = useState("seedance-2.0");
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
@@ -88,6 +89,7 @@ export function Studio({ initialPrompt }: StudioProps) {
         if (!active) return;
         setPersonalCredits(data.credits);
         setTeams(data.teams ?? []);
+        setUnlimited(Boolean(data.unlimited));
       } catch {
         /* keep last known state */
       }
@@ -210,7 +212,8 @@ export function Studio({ initialPrompt }: StudioProps) {
             <Label htmlFor="workspace">Workspace</Label>
             <Select id="workspace" value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
               <option value="">
-                Personal{personalCredits !== null ? ` — ${personalCredits} credits` : ""}
+                Personal
+                {unlimited ? " — Unlimited" : personalCredits !== null ? ` — ${personalCredits} credits` : ""}
               </option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -428,7 +431,7 @@ export function Studio({ initialPrompt }: StudioProps) {
               <>
                 <Sparkles className="h-4 w-4" /> Generate
                 <Badge variant="secondary" className="ml-1">
-                  {cost} {cost === 1 ? "credit" : "credits"}
+                  {unlimited ? "included" : `${cost} ${cost === 1 ? "credit" : "credits"}`}
                 </Badge>
               </>
             )}

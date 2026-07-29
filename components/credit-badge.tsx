@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
  */
 export function CreditBadge() {
   const [credits, setCredits] = useState<number | null>(null);
+  const [unlimited, setUnlimited] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -19,7 +20,10 @@ export function CreditBadge() {
         const res = await fetch("/api/me");
         if (!res.ok) return;
         const data = await res.json();
-        if (active) setCredits(data.credits);
+        if (active) {
+          setCredits(data.credits);
+          setUnlimited(Boolean(data.unlimited));
+        }
       } catch {
         /* transient network error — keep the last value */
       }
@@ -33,6 +37,14 @@ export function CreditBadge() {
       window.removeEventListener("credits:changed", load);
     };
   }, []);
+
+  if (unlimited) {
+    return (
+      <Badge variant="default" className="gap-1.5 py-1">
+        <Coins className="h-3.5 w-3.5" />∞ Unlimited
+      </Badge>
+    );
+  }
 
   return (
     <Badge variant="secondary" className="gap-1.5 py-1">

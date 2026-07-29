@@ -39,6 +39,17 @@ export async function togglePlatformRole(formData: FormData) {
   revalidatePath("/admin");
 }
 
+export async function toggleUnlimited(formData: FormData) {
+  await requireAdmin();
+  const userId = String(formData.get("userId"));
+  const target = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { unlimitedAccess: !target.unlimitedAccess },
+  });
+  revalidatePath("/admin");
+}
+
 export async function adjustUserCredits(formData: FormData) {
   const admin = await requireAdmin();
   const userId = String(formData.get("userId"));

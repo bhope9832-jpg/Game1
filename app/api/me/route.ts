@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { refreshDailyCredits, totalBalance } from "@/lib/credits";
-import { isPlatformAdmin } from "@/lib/rbac";
+import { isPlatformAdmin, hasUnlimitedAccess } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -28,6 +28,7 @@ export async function GET() {
     dailyCredits: refreshed.dailyCredits,
     plan: refreshed.plan,
     platformAdmin: isPlatformAdmin(refreshed),
+    unlimited: hasUnlimitedAccess(refreshed),
     teams: memberships.map((m) => ({
       id: m.team.id,
       name: m.team.name,
